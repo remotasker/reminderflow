@@ -1,0 +1,35 @@
+{
+  "name": "reminderflow-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "migrate": "ts-node src/database/migrate.ts",
+    "seed": "ts-node src/database/seed.ts",
+    "worker": "ts-node src/workers/emailWorker.ts"
+  },
+  "dependencies": {
+    "@sendgrid/mail": "^7.7.0",
+    "bcrypt": "^5.1.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.11.2",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.1",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.20",
+    "@types/jsonwebtoken": "^9.0.5",
+    "@types/node": "^20",
+    "@types/pg": "^8.10.7",
+    "@types/uuid": "^9.0.6",
+    "ts-node": "^10.9.1",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5"
+  }
+}

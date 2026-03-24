@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%; /* Matches slate-950 from your config */
+    --foreground: 210 40% 98%;
+  }
+
+  * {
+    @apply border-slate-200 dark:border-slate-800;
+  }
+
+  body {
+    /* Use the Poppins variable from your layout and set weight to 400 (Regular) */
+    font-family: var(--font-poppins), ui-sans-serif, system-ui;
+    @apply bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-50 font-normal;
+    
+    /* Critical for the 'light' aesthetic on high-res screens */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Refine all headers to be Semibold (600) instead of chunky Bold (700+) */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+  }
+}
+
+@layer components {
+  /* Updated 'btn' to be lighter and match your signup/login style */
+  .btn {
+    @apply px-4 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200 active:scale-[0.98];
+  }
+
+  .btn-primary {
+    @apply btn bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-500/20;
+  }
+
+  /* Input fields updated to match the refined AuthForm style */
+  .input-field {
+    @apply w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 
+           rounded-xl text-sm font-medium outline-none transition-all
+           focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500;
+  }
+
+  /* Cards updated to match your 'floating' container aesthetic */
+  .card {
+    @apply bg-white dark:bg-slate-900 rounded-[1.5rem] shadow-sm border border-slate-100 dark:border-slate-800 p-6;
+  }
+
+  .text-muted {
+    @apply text-slate-500 dark:text-slate-400 font-medium;
+  }
+}
