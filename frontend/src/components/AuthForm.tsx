@@ -6,10 +6,15 @@ import { Eye, EyeOff, Loader2 } from 'lucide-react';
 
 interface AuthFormProps {
   isSignup?: boolean;
-  onSuccess: (token: string, user: any) => void;
+  onLoginSuccess?: (token: string, user: any) => void;
+  onSignupSuccess?: () => void;
 }
 
-export const AuthForm: React.FC<AuthFormProps> = ({ isSignup = false, onSuccess }) => {
+export const AuthForm: React.FC<AuthFormProps> = ({
+  isSignup = false,
+  onLoginSuccess,
+  onSignupSuccess,
+}) => {
   const [mounted, setMounted] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
@@ -22,7 +27,6 @@ export const AuthForm: React.FC<AuthFormProps> = ({ isSignup = false, onSuccess 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Fix hydration mismatch for icons/themes
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -40,10 +44,18 @@ export const AuthForm: React.FC<AuthFormProps> = ({ isSignup = false, onSuccess 
 
     try {
       const endpoint = isSignup ? '/api/auth/signup' : '/api/auth/login';
-      const payload = isSignup ? formData : { email: formData.email, password: formData.password };
+      const payload = isSignup
+        ? formData
+        : { email: formData.email, password: formData.password };
+
       const response = await api.post(endpoint, payload);
-      const { token, user } = response.data;
-      onSuccess(token, user);
+
+      if (isSignup) {
+        onSignupSuccess?.();
+      } else {
+        const { token, user } = response.data;
+        onLoginSuccess?.(token, user);
+      }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Authentication failed');
     } finally {
@@ -56,7 +68,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({ isSignup = false, onSuccess 
 
   return (
     <div className="space-y-6">
-      {/* Social Login Buttons Section */}
+      {/* Social Login Buttons */}
       <div className="flex gap-3">
         <button type="button" className="flex-1 py-2 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-center hover:bg-slate-50 dark:hover:bg-slate-800 transition-all group">
           <img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-4 h-4 opacity-80 group-hover:opacity-100" alt="Google" />
@@ -72,10 +84,10 @@ export const AuthForm: React.FC<AuthFormProps> = ({ isSignup = false, onSuccess 
         <div className="flex-grow border-t border-slate-100 dark:border-slate-800"></div>
       </div>
 
-      {/* Form Section */}
+      {/* Form */}
       <form className="space-y-3" onSubmit={handleSubmit}>
         {error && <p className="text-[10px] text-red-500 font-bold ml-1">{error}</p>}
-        
+
         {isSignup && (
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
@@ -104,17 +116,17 @@ export const AuthForm: React.FC<AuthFormProps> = ({ isSignup = false, onSuccess 
             )}
           </div>
           <div className="relative">
-            <input 
-              name="password" 
-              type={showPassword ? "text" : "password"} 
-              placeholder="••••••••" 
-              className={inputClasses} 
-              onChange={handleChange} 
-              required 
+            <input
+              name="password"
+              type={showPassword ? 'text' : 'password'}
+              placeholder="••••••••"
+              className={inputClasses}
+              onChange={handleChange}
+              required
             />
-            <button 
-              type="button" 
-              onClick={() => setShowPassword(!showPassword)} 
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
             >
               {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -122,9 +134,9 @@ export const AuthForm: React.FC<AuthFormProps> = ({ isSignup = false, onSuccess 
           </div>
         </div>
 
-        <button 
-          type="submit" 
-          disabled={loading} 
+        <button
+          type="submit"
+          disabled={loading}
           className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all mt-4 flex justify-center items-center"
         >
           {loading ? <Loader2 className="animate-spin" size={16} /> : (isSignup ? 'Create Account' : 'Sign In')}

@@ -4,16 +4,31 @@ import { query } from '../database/db';
 
 const router = Router();
 
-/**
- * GET /api/events
- * Get all events for the organization
- */
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Postgres DATE columns come back as strings ("2025-06-01") — accept both. */
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^\d{2}:\d{2}(:\d{2})?$/;
+
+function isValidDate(val: unknown): val is string {
+  return typeof val === 'string' && DATE_RE.test(val);
+}
+
+function isValidTime(val: unknown): val is string {
+  return typeof val === 'string' && TIME_RE.test(val);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/events  — list all events for the organisation
+// ---------------------------------------------------------------------------
 router.get('/', async (req: Request, res: Response) => {
   try {
     if (!req.user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-    
+
     const result = await query(
       `SELECT e.id, e.title, e.description, e.event_date, e.event_time, e.timezone, e.meeting_link, e.created_at
        FROM events e
@@ -21,7 +36,7 @@ router.get('/', async (req: Request, res: Response) => {
        ORDER BY e.event_date DESC`,
       [req.user.organizationId]
     );
-    
+
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching events:', error);
@@ -29,46 +44,53 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-/**
- * POST /api/events
- * Create a new event
- */
+// ---------------------------------------------------------------------------
+// POST /api/events  — create a new event
+// ---------------------------------------------------------------------------
 router.post('/', async (req: Request, res: Response) => {
   try {
     if (!req.user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-    
+
     const { title, description, eventDate, eventTime, timezone, meetingLink, reminderSchedule } = req.body;
-    
+
     if (!title || !eventDate || !eventTime || !timezone) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
-    
+
+    // Validate date and time formats before they reach the DB
+    if (!isValidDate(eventDate)) {
+      return res.status(400).json({ error: 'eventDate must be in YYYY-MM-DD format' });
+    }
+    if (!isValidTime(eventTime)) {
+      return res.status(400).json({ error: 'eventTime must be in HH:MM or HH:MM:SS format' });
+    }
+
     const eventId = uuidv4();
-    
-    // Create event
+
     await query(
       `INSERT INTO events (id, organization_id, title, description, event_date, event_time, timezone, meeting_link, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [eventId, req.user.organizationId, title, description, eventDate, eventTime, timezone, meetingLink, req.user.userId]
     );
-    
-    // Create reminders based on schedule
+
     if (reminderSchedule && Array.isArray(reminderSchedule)) {
       for (const reminderType of reminderSchedule) {
-        let hoursBefore = null;
-        
+        let hoursBefore: number | null = null;
+
         if (reminderType === 'confirmation') {
-          hoursBefore = 0; // Immediately
+          hoursBefore = 0;
         } else if (reminderType === '24h') {
           hoursBefore = 24;
         } else if (reminderType === '1h') {
           hoursBefore = 1;
         } else if (reminderType === '10m') {
-          hoursBefore = 0.167; // 10 minutes
+          // Stored as a decimal — requires hours_before to be NUMERIC/FLOAT in the schema,
+          // not INT (see schema.sql fix).
+          hoursBefore = 0.167;
         }
-        
+
         if (hoursBefore !== null) {
           await query(
             `INSERT INTO reminders (id, event_id, type, hours_before)
@@ -78,7 +100,7 @@ router.post('/', async (req: Request, res: Response) => {
         }
       }
     }
-    
+
     res.status(201).json({
       message: 'Event created successfully',
       eventId,
@@ -89,43 +111,40 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-/**
- * GET /api/events/:id
- * Get a single event with attendees and reminders
- */
+// ---------------------------------------------------------------------------
+// GET /api/events/:id  — get a single event with attendees and reminders
+// ---------------------------------------------------------------------------
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     if (!req.user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-    
+
     const { id } = req.params;
-    
+
     const eventResult = await query(
       `SELECT e.id, e.title, e.description, e.event_date, e.event_time, e.timezone, e.meeting_link, e.created_at
        FROM events e
        WHERE e.id = $1 AND e.organization_id = $2`,
       [id, req.user.organizationId]
     );
-    
+
     if (eventResult.rows.length === 0) {
       return res.status(404).json({ error: 'Event not found' });
     }
-    
+
     const event = eventResult.rows[0];
-    
-    // Get reminders
+
     const remindersResult = await query(
       'SELECT type, hours_before FROM reminders WHERE event_id = $1',
       [id]
     );
-    
-    // Get attendee count
+
     const attendeeCountResult = await query(
       'SELECT COUNT(*) as count FROM attendees WHERE event_id = $1',
       [id]
     );
-    
+
     res.json({
       ...event,
       reminders: remindersResult.rows,
@@ -137,39 +156,62 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-/**
- * PUT /api/events/:id
- * Update an event
- */
+// ---------------------------------------------------------------------------
+// PUT /api/events/:id  — update an event
+// ---------------------------------------------------------------------------
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     if (!req.user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-    
+
     const { id } = req.params;
     const { title, description, eventDate, eventTime, timezone, meetingLink } = req.body;
-    
-    // Verify ownership
+
+    // Validate formats for any date/time fields that were provided
+    if (eventDate !== undefined && !isValidDate(eventDate)) {
+      return res.status(400).json({ error: 'eventDate must be in YYYY-MM-DD format' });
+    }
+    if (eventTime !== undefined && !isValidTime(eventTime)) {
+      return res.status(400).json({ error: 'eventTime must be in HH:MM or HH:MM:SS format' });
+    }
+
     const checkResult = await query(
       'SELECT organization_id FROM events WHERE id = $1',
       [id]
     );
-    
+
     if (checkResult.rows.length === 0) {
       return res.status(404).json({ error: 'Event not found' });
     }
-    
+
     if (checkResult.rows[0].organization_id !== req.user.organizationId) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    
+
+    // Use COALESCE so omitted fields keep their existing DB value
+    // rather than being overwritten with NULL.
     await query(
-      `UPDATE events SET title = $1, description = $2, event_date = $3, event_time = $4, timezone = $5, meeting_link = $6, updated_at = CURRENT_TIMESTAMP
+      `UPDATE events SET
+         title        = COALESCE($1, title),
+         description  = COALESCE($2, description),
+         event_date   = COALESCE($3, event_date),
+         event_time   = COALESCE($4, event_time),
+         timezone     = COALESCE($5, timezone),
+         meeting_link = COALESCE($6, meeting_link),
+         updated_at   = CURRENT_TIMESTAMP
        WHERE id = $7`,
-      [title, description, eventDate, eventTime, timezone, meetingLink, id]
+      [
+        title       ?? null,
+        description ?? null,
+        eventDate   ?? null,
+        eventTime   ?? null,
+        timezone    ?? null,
+        meetingLink ?? null,
+        id,
+      ]
     );
-    
+
     res.json({ message: 'Event updated successfully' });
   } catch (error) {
     console.error('Error updating event:', error);
@@ -177,34 +219,32 @@ router.put('/:id', async (req: Request, res: Response) => {
   }
 });
 
-/**
- * DELETE /api/events/:id
- * Delete an event
- */
+// ---------------------------------------------------------------------------
+// DELETE /api/events/:id  — delete an event
+// ---------------------------------------------------------------------------
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
     if (!req.user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-    
+
     const { id } = req.params;
-    
-    // Verify ownership
+
     const checkResult = await query(
       'SELECT organization_id FROM events WHERE id = $1',
       [id]
     );
-    
+
     if (checkResult.rows.length === 0) {
       return res.status(404).json({ error: 'Event not found' });
     }
-    
+
     if (checkResult.rows[0].organization_id !== req.user.organizationId) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    
+
     await query('DELETE FROM events WHERE id = $1', [id]);
-    
+
     res.json({ message: 'Event deleted successfully' });
   } catch (error) {
     console.error('Error deleting event:', error);
