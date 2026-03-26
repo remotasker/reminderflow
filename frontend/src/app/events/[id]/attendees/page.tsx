@@ -27,7 +27,10 @@ interface Attendee {
 export default function AttendeesPage() {
   const router = useRouter();
   const params = useParams();
-  const eventId = params.id as string;
+
+  // Support both /events/[id]/attendees and /events/[eventId]/attendees
+  // folder naming conventions by checking both param keys.
+  const eventId = (params.id ?? params.eventId) as string;
 
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,6 +47,11 @@ export default function AttendeesPage() {
       router.push('/login');
       return;
     }
+    if (!eventId) {
+      setError('No event ID found in URL.');
+      setLoading(false);
+      return;
+    }
     fetchAttendees();
   }, [eventId, router]);
 
@@ -52,6 +60,7 @@ export default function AttendeesPage() {
       setLoading(true);
       const response = await api.get(`/api/attendees/${eventId}`);
       setAttendees(response.data);
+      setError('');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to load attendees');
     } finally {
@@ -120,7 +129,8 @@ export default function AttendeesPage() {
   const handleDeleteAttendee = async (attendeeId: string) => {
     if (!confirm('Are you sure you want to remove this attendee?')) return;
     try {
-      await api.delete(`/api/attendees/${attendeeId}`);
+      // Backend DELETE route is /api/attendees/remove/:id
+      await api.delete(`/api/attendees/remove/${attendeeId}`);
       fetchAttendees();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to delete attendee');
@@ -239,7 +249,7 @@ export default function AttendeesPage() {
                 {attendees.length} Total
               </span>
             </div>
-            
+
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>

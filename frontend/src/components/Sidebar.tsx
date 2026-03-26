@@ -19,7 +19,7 @@ export function Sidebar() {
   const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Events', href: '/dashboard/events', icon: Calendar },
-    { name: 'Attendees', href: '/dashboard/attendees', icon: Users },
+   { name: 'Attendees', href: '/dashboard/attendees', icon: Users },
     { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
     { name: 'Settings', href: '/dashboard/settings', icon: Settings },
     { name: 'Help Center', href: '/dashboard/help', icon: HelpCircle },
