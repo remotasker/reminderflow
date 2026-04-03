@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { query } from '../database/db';
+import { isUuid } from '../utils/validation';
 
 const router = Router();
 
@@ -29,6 +30,9 @@ function isSafeRedirectUrl(raw: string): boolean {
 router.get('/track-pixel/:trackingId', async (req: Request, res: Response) => {
   try {
     const { trackingId } = req.params;
+    if (!isUuid(trackingId)) {
+      return res.status(400).end();
+    }
 
     const result = await query(
       'SELECT id FROM email_logs WHERE tracking_id = $1',
@@ -53,10 +57,10 @@ router.get('/track-pixel/:trackingId', async (req: Request, res: Response) => {
 
     res.setHeader('Content-Type', 'image/gif');
     res.setHeader('Content-Length', gif.length);
-    res.send(gif);
+    return res.send(gif);
   } catch (error) {
     console.error('Error tracking pixel:', error);
-    res.status(500).end();
+    return res.status(500).end();
   }
 });
 
@@ -68,6 +72,10 @@ router.get('/track-click/:trackingId', async (req: Request, res: Response) => {
   try {
     const { trackingId } = req.params;
     const url = req.query.url as string;
+
+    if (!isUuid(trackingId)) {
+      return res.status(400).json({ error: 'Invalid tracking id' });
+    }
 
     if (!url) {
       return res.status(400).json({ error: 'URL parameter required' });
@@ -91,10 +99,10 @@ router.get('/track-click/:trackingId', async (req: Request, res: Response) => {
       );
     }
 
-    res.redirect(url);
+    return res.redirect(url);
   } catch (error) {
     console.error('Error tracking click:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

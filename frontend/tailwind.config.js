@@ -11,7 +11,7 @@ module.exports = {
     extend: {
       // 2. This sets Poppins as the default font for 'font-sans'
       fontFamily: {
-        sans: ['var(--font-poppins)', 'ui-sans-serif', 'system-ui'],
+        sans: ['Poppins', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       colors: {
         primary: '#3B82F6',

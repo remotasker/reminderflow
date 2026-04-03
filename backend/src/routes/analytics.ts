@@ -1,7 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { query } from '../database/db';
+import { requireManagerOrAdmin } from '../middleware/rbac';
 
 const router = Router();
+router.use(requireManagerOrAdmin);
+
+function getOwnerScope(req: Request): string | null {
+  return req.user?.role === 'admin' ? null : req.user?.userId ?? null;
+}
 
 /**
  * GET /api/analytics/metrics
@@ -12,36 +18,47 @@ router.get('/metrics', async (req: Request, res: Response) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const ownerScope = getOwnerScope(req);
 
     // Total events
     const eventsResult = await query(
-      'SELECT COUNT(*) as count FROM events WHERE organization_id = $1',
-      [req.user.organizationId]
+      `SELECT COUNT(*) as count
+       FROM events
+       WHERE organization_id = $1
+         AND ($2::uuid IS NULL OR created_by = $2::uuid)`,
+      [req.user.organizationId, ownerScope]
     );
 
     // Total attendees
     const attendeesResult = await query(
       `SELECT COUNT(*) as count FROM attendees a
        JOIN events e ON a.event_id = e.id
-       WHERE e.organization_id = $1`,
-      [req.user.organizationId]
+       WHERE e.organization_id = $1
+         AND ($2::uuid IS NULL OR e.created_by = $2::uuid)`,
+      [req.user.organizationId, ownerScope]
     );
 
     // Total emails sent
     const emailsSentResult = await query(
-      'SELECT COUNT(*) as count FROM email_logs WHERE organization_id = $1',
-      [req.user.organizationId]
+      `SELECT COUNT(*) as count
+       FROM email_logs el
+       JOIN events e ON el.event_id = e.id
+       WHERE el.organization_id = $1
+         AND ($2::uuid IS NULL OR e.created_by = $2::uuid)`,
+      [req.user.organizationId, ownerScope]
     );
 
     // Count of upcoming events (ORDER BY and LIMIT are meaningless on a COUNT —
     // they were removed; the WHERE clause is all that's needed here).
     const upcomingResult = await query(
       `SELECT COUNT(*) as count FROM events
-       WHERE organization_id = $1 AND event_date >= CURRENT_DATE`,
-      [req.user.organizationId]
+       WHERE organization_id = $1
+         AND event_date >= CURRENT_DATE
+         AND ($2::uuid IS NULL OR created_by = $2::uuid)`,
+      [req.user.organizationId, ownerScope]
     );
 
-    res.json({
+    return res.json({
       totalEvents: parseInt(eventsResult.rows[0].count),
       totalAttendees: parseInt(attendeesResult.rows[0].count),
       emailsSent: parseInt(emailsSentResult.rows[0].count),
@@ -49,7 +66,7 @@ router.get('/metrics', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error fetching metrics:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -62,29 +79,41 @@ router.get('/email-stats', async (req: Request, res: Response) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const ownerScope = getOwnerScope(req);
 
     const totalResult = await query(
-      'SELECT COUNT(*) as count FROM email_logs WHERE organization_id = $1',
-      [req.user.organizationId]
+      `SELECT COUNT(*) as count
+       FROM email_logs el
+       JOIN events e ON el.event_id = e.id
+       WHERE el.organization_id = $1
+         AND ($2::uuid IS NULL OR e.created_by = $2::uuid)`,
+      [req.user.organizationId, ownerScope]
     );
 
     const openedResult = await query(
-      'SELECT COUNT(*) as count FROM email_logs WHERE organization_id = $1 AND opened_at IS NOT NULL',
-      [req.user.organizationId]
+      `SELECT COUNT(*) as count
+       FROM email_logs el
+       JOIN events e ON el.event_id = e.id
+       WHERE el.organization_id = $1
+         AND el.opened_at IS NOT NULL
+         AND ($2::uuid IS NULL OR e.created_by = $2::uuid)`,
+      [req.user.organizationId, ownerScope]
     );
 
     const clickedResult = await query(
       `SELECT COUNT(DISTINCT ecl.email_log_id) as count FROM email_click_logs ecl
        JOIN email_logs el ON ecl.email_log_id = el.id
-       WHERE el.organization_id = $1`,
-      [req.user.organizationId]
+       JOIN events e ON el.event_id = e.id
+       WHERE el.organization_id = $1
+         AND ($2::uuid IS NULL OR e.created_by = $2::uuid)`,
+      [req.user.organizationId, ownerScope]
     );
 
     const totalEmails = parseInt(totalResult.rows[0].count);
     const openedEmails = parseInt(openedResult.rows[0].count);
     const clickedEmails = parseInt(clickedResult.rows[0].count);
 
-    res.json({
+    return res.json({
       totalEmails,
       openedEmails,
       clickedEmails,
@@ -93,7 +122,7 @@ router.get('/email-stats', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error fetching email stats:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -106,19 +135,21 @@ router.get('/events-stats', async (req: Request, res: Response) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const ownerScope = getOwnerScope(req);
 
     const result = await query(
       `SELECT e.id, e.title, e.event_date, COUNT(a.id) as attendee_count
        FROM events e
        LEFT JOIN attendees a ON e.id = a.event_id
        WHERE e.organization_id = $1
+         AND ($2::uuid IS NULL OR e.created_by = $2::uuid)
        GROUP BY e.id, e.title, e.event_date
        ORDER BY e.event_date DESC
        LIMIT 10`,
-      [req.user.organizationId]
+      [req.user.organizationId, ownerScope]
     );
 
-    res.json(
+    return res.json(
       result.rows.map(row => ({
         id: row.id,
         title: row.title,
@@ -128,7 +159,7 @@ router.get('/events-stats', async (req: Request, res: Response) => {
     );
   } catch (error) {
     console.error('Error fetching events stats:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -141,17 +172,21 @@ router.get('/timeline', async (req: Request, res: Response) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const ownerScope = getOwnerScope(req);
 
     const result = await query(
       `SELECT DATE(sent_at) as date, COUNT(*) as count
-       FROM email_logs
-       WHERE organization_id = $1 AND sent_at >= CURRENT_DATE - INTERVAL '30 days'
+       FROM email_logs el
+       JOIN events e ON el.event_id = e.id
+       WHERE el.organization_id = $1
+         AND el.sent_at >= CURRENT_DATE - INTERVAL '30 days'
+         AND ($2::uuid IS NULL OR e.created_by = $2::uuid)
        GROUP BY DATE(sent_at)
        ORDER BY DATE(sent_at) ASC`,
-      [req.user.organizationId]
+      [req.user.organizationId, ownerScope]
     );
 
-    res.json(
+    return res.json(
       result.rows.map(row => ({
         date: row.date,
         count: parseInt(row.count),
@@ -159,7 +194,7 @@ router.get('/timeline', async (req: Request, res: Response) => {
     );
   } catch (error) {
     console.error('Error fetching timeline:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

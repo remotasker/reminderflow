@@ -1,3 +1,5 @@
+import { getSafeExternalUrl } from './url';
+
 interface CalendarEvent {
   title: string;
   description: string;
@@ -11,6 +13,7 @@ interface CalendarEvent {
  * Generate Google Calendar link
  */
 export function generateGoogleCalendarLink(event: CalendarEvent): string {
+  const safeMeetingLink = getSafeExternalUrl(event.meetingLink) ?? '';
   const eventDate = new Date(`${event.date}T${event.time}`);
   const startTime = eventDate.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
   const endDate = new Date(eventDate.getTime() + 60 * 60 * 1000); // 1 hour duration
@@ -21,7 +24,7 @@ export function generateGoogleCalendarLink(event: CalendarEvent): string {
     text: event.title,
     details: event.description,
     dates: `${startTime}/${endTime}`,
-    location: event.meetingLink || '',
+    location: safeMeetingLink,
     ctz: event.timezone,
   });
 
@@ -32,6 +35,7 @@ export function generateGoogleCalendarLink(event: CalendarEvent): string {
  * Generate Outlook calendar link
  */
 export function generateOutlookCalendarLink(event: CalendarEvent): string {
+  const safeMeetingLink = getSafeExternalUrl(event.meetingLink) ?? '';
   const eventDate = new Date(`${event.date}T${event.time}`);
   const startTime = eventDate.toISOString();
   const endDate = new Date(eventDate.getTime() + 60 * 60 * 1000);
@@ -44,7 +48,7 @@ export function generateOutlookCalendarLink(event: CalendarEvent): string {
     enddt: endTime,
     subject: event.title,
     body: event.description,
-    location: event.meetingLink || '',
+    location: safeMeetingLink,
   });
 
   return `https://outlook.live.com/calendar/0/deeplink/compose?${params.toString()}`;
@@ -54,6 +58,7 @@ export function generateOutlookCalendarLink(event: CalendarEvent): string {
  * Generate iCalendar (.ics) file content
  */
 export function generateICalendar(event: CalendarEvent): string {
+  const safeMeetingLink = getSafeExternalUrl(event.meetingLink);
   const eventDate = new Date(`${event.date}T${event.time}`);
   const startTime = formatICalendarDate(eventDate);
   const endDate = new Date(eventDate.getTime() + 60 * 60 * 1000);
@@ -73,7 +78,7 @@ DTSTART:${startTime}
 DTEND:${endTime}
 SUMMARY:${escapeICalendarText(event.title)}
 DESCRIPTION:${escapeICalendarText(event.description)}
-LOCATION:${escapeICalendarText(event.meetingLink || 'Online')}
+LOCATION:${escapeICalendarText(safeMeetingLink || 'Online')}
 TZID:${event.timezone}
 STATUS:CONFIRMED
 SEQUENCE:0

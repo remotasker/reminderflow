@@ -1,88 +1,128 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useEffect, useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { AuthForm } from '@/components/AuthForm';
-import { Sun, Moon, BellRing } from 'lucide-react';
+import { storeAuthUser, type AuthUser } from '@/lib/auth';
+import { Sun, Moon, Sparkles } from 'lucide-react';
 import { useTheme } from 'next-themes';
+import toast from 'react-hot-toast';
 
-export default function LoginPage() {
+// useSearchParams must be inside a Suspense boundary in Next.js 13+
+function LoginInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
-    const token = localStorage.getItem('token');
-    if (token) router.push('/dashboard');
-  }, [router]);
+  }, []);
 
-  const handleSuccess = (token: string, user: any) => {
-    // payload is always non-null for login, but guard anyway
-    
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(user));
-    router.push('/dashboard');
+  // Show welcome toast when arriving from the signup page
+  useEffect(() => {
+    if (searchParams.get('registered') === 'true') {
+      toast.success('Account created! Please sign in.');
+    }
+  }, [searchParams]);
+
+  const handleSuccess = (user: AuthUser) => {
+    storeAuthUser(user);
+    router.replace('/dashboard');
+    router.refresh();
   };
 
-  if (!mounted) return null;
-
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950 p-4 font-sans transition-colors duration-500">
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950 p-4 sm:p-8 font-sans transition-colors duration-500">
 
-      <div className="flex w-full max-w-[950px] min-h-[650px] rounded-[2.5rem] overflow-hidden shadow-2xl border border-white dark:border-slate-800 bg-white dark:bg-slate-900 transition-all">
+      {/* Main Container */}
+      <div className="flex w-full max-w-[1000px] min-h-[600px] rounded-[24px] overflow-hidden shadow-sm border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 transition-all">
 
-        {/* Left Side: Brand Panel */}
-        <div className="hidden lg:flex lg:w-[42%] bg-blue-600 p-12 flex-col justify-between relative overflow-hidden">
-          <div className="relative z-10 flex flex-col items-center text-center mt-12">
-            <div className="bg-white/20 backdrop-blur-lg p-5 rounded-3xl mb-6 border border-white/30 shadow-xl">
-              <BellRing size={32} className="text-white" />
+        {/* Left: Brand Panel */}
+        <div className="hidden lg:flex lg:w-[45%] bg-slate-950 p-12 flex-col justify-between relative overflow-hidden border-r border-slate-800">
+          <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+            <div className="absolute -top-20 -right-20 w-64 h-64 bg-slate-800/40 rounded-full blur-3xl"></div>
+            <div className="absolute -bottom-20 -left-20 w-80 h-80 bg-slate-800/30 rounded-full blur-3xl"></div>
+          </div>
+
+          <div className="relative z-10 flex flex-col items-center text-center mt-16">
+            <div className="bg-white/5 backdrop-blur-md p-3.5 rounded-[16px] mb-8 border border-white/10 shadow-sm">
+              <Sparkles size={28} className="text-slate-300" />
             </div>
-            <h1 className="text-2xl font-bold text-white mb-3 tracking-tight">ReminderFlow</h1>
-            <p className="text-blue-100 text-xs font-medium leading-relaxed max-w-[220px] opacity-90">
-              Sign in to manage your automated reminders and events.
+            <h1 className="text-2xl font-medium text-white mb-3 tracking-tight">ReminderFlow</h1>
+            <p className="text-slate-400 text-sm font-normal leading-relaxed max-w-[260px]">
+              The intelligent way to automate event registrations and email reminders.
             </p>
           </div>
 
-          <p className="relative z-10 text-blue-200 text-[10px] font-bold uppercase tracking-widest opacity-60">
-            © 2026 ReminderFlow
-          </p>
-          <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
-        </div>
-
-        {/* Right Side: Form Panel */}
-        <div className="flex-1 flex flex-col p-8 md:p-14 relative bg-white dark:bg-slate-900">
-          <button
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            className="absolute top-6 right-6 p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform active:scale-90"
-          >
-            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
-
-          <div className="w-full max-w-[360px] mx-auto my-auto">
-            <div className="mb-8 text-left">
-              <div className="flex gap-1 mb-4">
-                <div className="h-1 w-6 bg-blue-600 rounded-full" />
-                <div className="h-1 w-1.5 bg-slate-200 dark:bg-slate-800 rounded-full" />
-              </div>
-              <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-1">Welcome Back</h2>
-              <p className="text-slate-500 dark:text-slate-400 text-xs font-medium">Please enter your details to sign in.</p>
-            </div>
-
-            <AuthForm isSignup={false} onLoginSuccess={handleSuccess} />
-
-            <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800 text-center">
-              <p className="text-slate-500 text-xs font-bold">
-                Don&apos;t have an account?{' '}
-                <Link href="/signup" className="text-blue-600 hover:text-blue-500 transition-colors">
-                  Sign up for free
-                </Link>
-              </p>
+          <div className="relative z-10 flex items-center justify-between w-full">
+            <p className="text-slate-500 text-[10px] font-medium uppercase tracking-widest">
+              © 2026 ReminderFlow
+            </p>
+            <div className="flex gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-800"></div>
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div>
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-800"></div>
             </div>
           </div>
         </div>
+
+        {/* Right: Form Panel */}
+        <div className="flex-1 flex flex-col p-8 md:p-16 relative bg-white dark:bg-slate-900">
+
+          {/* Theme Toggle */}
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="absolute top-6 right-6 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all active:scale-95 shadow-sm"
+            aria-label="Toggle theme"
+          >
+            {mounted ? (
+              theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />
+            ) : (
+              <span className="block h-[16px] w-[16px]" aria-hidden="true" />
+            )}
+          </button>
+
+          <div className="w-full max-w-[360px] mx-auto my-auto">
+            <div className="animate-in fade-in duration-500">
+
+              <div className="mb-10 text-left">
+                <h2 className="text-2xl font-medium text-slate-900 dark:text-white mb-1.5 tracking-tight">
+                  Welcome back
+                </h2>
+                <p className="text-slate-500 dark:text-slate-400 text-sm font-normal">
+                  Sign in to your ReminderFlow account.
+                </p>
+              </div>
+
+              <AuthForm isSignup={false} onLoginSuccess={handleSuccess} />
+
+              <div className="mt-8 pt-8 border-t border-slate-100 dark:border-slate-800/50 text-center">
+                <p className="text-slate-500 text-sm font-normal">
+                  Don&apos;t have an account?{' '}
+                  <Link
+                    href="/signup"
+                    className="text-slate-900 dark:text-white font-medium hover:underline transition-colors"
+                  >
+                    Create one here
+                  </Link>
+                </p>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginInner />
+    </Suspense>
   );
 }

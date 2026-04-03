@@ -25,8 +25,10 @@
   "author": "ReminderFlow Team",
   "license": "MIT",
   "dependencies": {
+    "@daily-co/daily-js": "^0.87.0",
     "bcryptjs": "^3.0.3",
     "lucide-react": "^1.0.1",
-    "next-themes": "^0.4.6"
+    "next-themes": "^0.4.6",
+    "react-hot-toast": "^2.6.0"
   }
 }

@@ -1,0 +1,7 @@
+                  id                  |         email         |           organization_id            | role  
+--------------------------------------+-----------------------+--------------------------------------+-------
+ bc6eafd2-4509-49e0-8a4e-34128bd54485 | admin@techacademy.com | d9c14598-bf34-4b93-a9e4-6cb312fb385f | admin
+ c76fe070-97f5-4f72-80e7-1b835f6a608f | admin@techacademy.com | cc2ef8c5-8cd3-440e-b7bd-d59187e10c24 | admin
+ a8c5148b-d188-4cb1-ab03-a658650daf14 | testuser@example.com  | 6a7dea32-4f03-4c9f-8a2b-bc67b74508c7 | admin
+(3 rows)
+

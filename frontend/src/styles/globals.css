@@ -1,26 +1,44 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Base Backgrounds */
+    --background: 255 255 255; /* white */
+    --foreground: 15 23 42; /* slate-900 */
+
+    /* Monochromatic Brand System */
+    --brand-primary: 15 23 42; /* slate-900 */
+    --brand-primary-foreground: 255 255 255; /* white */
+    --brand-muted: 241 245 249; /* slate-100 */
+    
+    /* Focus ring color */
+    --brand-ring: 148 163 184; /* slate-400 */
   }
 
   .dark {
-    --background: 222.2 84% 4.9%; /* Matches slate-950 from your config */
-    --foreground: 210 40% 98%;
+    /* Base Backgrounds */
+    --background: 2 6 23; /* slate-950 */
+    --foreground: 248 250 252; /* slate-50 */
+
+    /* Monochromatic Brand System */
+    --brand-primary: 255 255 255; /* white */
+    --brand-primary-foreground: 15 23 42; /* slate-900 */
+    --brand-muted: 30 41 59; /* slate-800 */
+    
+    /* Focus ring color */
+    --brand-ring: 100 116 139; /* slate-500 */
   }
 
   * {
-    @apply border-slate-200 dark:border-slate-800;
+    @apply border-slate-200/80 dark:border-slate-800/80;
   }
 
   body {
-    /* Use the Poppins variable from your layout and set weight to 400 (Regular) */
-    font-family: var(--font-poppins), ui-sans-serif, system-ui;
-    @apply bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-50 font-normal;
+    @apply bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 font-normal;
     
     /* Critical for the 'light' aesthetic on high-res screens */
     -webkit-font-smoothing: antialiased;
@@ -28,35 +46,40 @@
     text-rendering: optimizeLegibility;
   }
 
-  /* Refine all headers to be Semibold (600) instead of chunky Bold (700+) */
+  /* Refined headers to match our new SaaS standard */
   h1, h2, h3, h4, h5, h6 {
-    @apply font-semibold tracking-tight;
+    @apply font-medium tracking-tight;
   }
 }
 
 @layer components {
-  /* Updated 'btn' to be lighter and match your signup/login style */
+  /* Base button styling */
   .btn {
-    @apply px-4 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200 active:scale-[0.98];
+    @apply px-4 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:active:scale-100;
   }
 
+  /* 
+    Primary Button now uses the dynamic CSS variables.
+    Light mode: Slate 900 background / White text
+    Dark mode: White background / Slate 900 text
+  */
   .btn-primary {
-    @apply btn bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-500/20;
+    @apply btn bg-brand text-brand-foreground shadow-sm hover:opacity-90;
   }
 
-  /* Input fields updated to match the refined AuthForm style */
+  /* Monochromatic standard inputs */
   .input-field {
-    @apply w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 
-           rounded-xl text-sm font-medium outline-none transition-all
-           focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500;
+    @apply w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800/30 border border-slate-200/80 dark:border-slate-700/50 
+           rounded-[16px] text-sm font-normal text-slate-900 dark:text-white outline-none transition-all placeholder:text-slate-400
+           focus:border-brand-ring;
   }
 
-  /* Cards updated to match your 'floating' container aesthetic */
+  /* Rounded, soft-shadow standard cards */
   .card {
-    @apply bg-white dark:bg-slate-900 rounded-[1.5rem] shadow-sm border border-slate-100 dark:border-slate-800 p-6;
+    @apply bg-white dark:bg-slate-900 rounded-[20px] shadow-sm border border-slate-200/80 dark:border-slate-800 p-6 sm:p-8;
   }
 
   .text-muted {
-    @apply text-slate-500 dark:text-slate-400 font-medium;
+    @apply text-slate-500 dark:text-slate-400 font-normal;
   }
 }

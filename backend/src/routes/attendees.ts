@@ -1,326 +1,278 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { query, getClient } from '../database/db';
+import { query } from '../database/db';
+import { requireManagerOrAdmin } from '../middleware/rbac';
+import { isUuid, normalizeEmail, normalizeName } from '../utils/validation';
+import { isEmailTypeEnabled } from '../utils/settings';
 
 const router = Router();
+router.use(requireManagerOrAdmin);
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Parse an event's date + time columns into a valid Date object.
- * Postgres returns event_date as a JS Date (midnight UTC) or a string
- * depending on the driver version, so we normalise both.
- */
-function parseEventDateTime(eventDate: Date | string, eventTime: string): Date {
-  const dateStr =
-    eventDate instanceof Date
-      ? eventDate.toISOString().split('T')[0]
-      : eventDate;
-  return new Date(`${dateStr}T${eventTime}`);
+function getOwnerScope(req: Request): string | null {
+  return req.user?.role === 'admin' ? null : req.user?.userId ?? null;
 }
 
-/**
- * Build email_queue rows for a single attendee and insert them.
- * Extracted so both the single-add and bulk-upload paths share identical logic.
- */
-async function enqueueReminders(
-  client: { query: Function },
-  {
-    organizationId,
-    eventId,
-    attendeeId,
-    attendeeEmail,
-    eventDate,
-    eventTime,
-    reminders,
-  }: {
-    organizationId: string;
-    eventId: string;
-    attendeeId: string;
-    attendeeEmail: string;
-    eventDate: Date | string;
-    eventTime: string;
-    reminders: { type: string; hours_before: number }[];
-  }
-): Promise<void> {
-  const eventDateTime = parseEventDateTime(eventDate, eventTime);
+// ── GET /api/attendees ────────────────────────────────────────────────────
 
-  if (isNaN(eventDateTime.getTime())) {
-    throw new Error(`Invalid event date/time: ${eventDate} ${eventTime}`);
-  }
-
-  for (const reminder of reminders) {
-    const hours = parseFloat(String(reminder.hours_before));
-    const sendTime = new Date(eventDateTime.getTime() - hours * 60 * 60 * 1000);
-
-    if (isNaN(sendTime.getTime())) continue;
-
-    await client.query(
-      `INSERT INTO email_queue
-         (id, organization_id, event_id, attendee_id, attendee_email, template_type, send_at, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [uuidv4(), organizationId, eventId, attendeeId, attendeeEmail, reminder.type, sendTime, 'pending']
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// GET /api/attendees/:eventId  — list attendees for an event
-// ---------------------------------------------------------------------------
-router.get('/:eventId', async (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const { eventId } = req.params;
-
-    const eventCheck = await query(
-      'SELECT organization_id FROM events WHERE id = $1',
-      [eventId]
-    );
-
-    if (
-      eventCheck.rows.length === 0 ||
-      eventCheck.rows[0].organization_id !== req.user.organizationId
-    ) {
-      return res.status(404).json({ error: 'Event not found' });
-    }
+    const organizationId = req.user?.organizationId;
+    if (!organizationId) return res.status(401).json({ error: 'Unauthorized' });
 
     const result = await query(
-      'SELECT id, name, email, created_at FROM attendees WHERE event_id = $1 ORDER BY created_at DESC',
-      [eventId]
+      `SELECT a.id, a.name, a.email, a.created_at, a.responses,
+              e.title AS event_title, e.id AS event_id
+       FROM attendees a
+       JOIN events e ON a.event_id = e.id
+       WHERE e.organization_id = $1
+         AND ($2::uuid IS NULL OR e.created_by = $2::uuid)
+       ORDER BY a.created_at DESC`,
+      [organizationId, getOwnerScope(req)]
     );
 
-    res.json(result.rows);
+    return res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching global attendees:', error);
+    return res.status(500).json({ error: 'Failed to load audience directory' });
+  }
+});
+
+// ── GET /api/attendees/:eventId ───────────────────────────────────────────
+
+router.get('/:eventId', async (req: Request, res: Response) => {
+  try {
+    const { eventId }    = req.params;
+    const organizationId = req.user?.organizationId;
+
+    if (!organizationId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!isUuid(eventId)) return res.status(400).json({ error: 'Invalid event id' });
+
+    const result = await query(
+      `SELECT a.id, a.name, a.email, a.created_at, a.responses
+       FROM attendees a
+       JOIN events e ON a.event_id = e.id
+       WHERE a.event_id = $1
+         AND e.organization_id = $2
+         AND ($3::uuid IS NULL OR e.created_by = $3::uuid)
+       ORDER BY a.created_at DESC`,
+      [eventId, organizationId, getOwnerScope(req)]
+    );
+
+    return res.json(result.rows);
   } catch (error) {
     console.error('Error fetching attendees:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Failed to load attendees' });
   }
 });
 
-// ---------------------------------------------------------------------------
-// POST /api/attendees/:eventId  — add a single attendee
-// ---------------------------------------------------------------------------
+// ── POST /api/attendees/:eventId — add single attendee ────────────────────
+
 router.post('/:eventId', async (req: Request, res: Response) => {
-  const client = await getClient();
   try {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const { eventId } = req.params;
+    const { eventId }     = req.params;
     const { name, email } = req.body;
+    const organizationId  = req.user?.organizationId;
+    const normalizedName  = normalizeName(name);
+    const normalizedEmail = normalizeEmail(email);
 
-    if (!name || !email) {
-      return res.status(400).json({ error: 'Name and email are required' });
+    if (!organizationId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!isUuid(eventId)) return res.status(400).json({ error: 'Invalid event id' });
+    if (!normalizedName || !normalizedEmail) {
+      return res.status(400).json({ error: 'A valid name and email are required' });
     }
 
-    // Verify event ownership
-    const eventCheck = await client.query(
-      'SELECT organization_id, event_date, event_time FROM events WHERE id = $1',
-      [eventId]
+    // Fetch event settings AND the stored email theme so confirmation
+    // emails use the same theme the organiser chose at publish time.
+    const eventCheck = await query(
+      `SELECT e.id, o.settings, e.email_theme_id
+       FROM events e
+       JOIN organizations o ON o.id = e.organization_id
+       WHERE e.id = $1
+         AND e.organization_id = $2
+         AND ($3::uuid IS NULL OR e.created_by = $3::uuid)`,
+      [eventId, organizationId, getOwnerScope(req)]
     );
 
-    if (
-      eventCheck.rows.length === 0 ||
-      eventCheck.rows[0].organization_id !== req.user.organizationId
-    ) {
+    if (eventCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    // Reject duplicate attendee email for this event
-    const duplicate = await client.query(
-      'SELECT id FROM attendees WHERE event_id = $1 AND email = $2',
-      [eventId, email]
-    );
-
-    if (duplicate.rows.length > 0) {
-      return res.status(409).json({ error: 'Attendee with this email already registered for this event' });
-    }
-
-    const remindersResult = await client.query(
-      'SELECT type, hours_before FROM reminders WHERE event_id = $1',
-      [eventId]
-    );
+    const { settings, email_theme_id } = eventCheck.rows[0];
+    const themeId = email_theme_id || 'minimal_light';
 
     const attendeeId = uuidv4();
-    const { event_date, event_time } = eventCheck.rows[0];
-
-    await client.query('BEGIN');
-
-    await client.query(
-      'INSERT INTO attendees (id, event_id, name, email) VALUES ($1, $2, $3, $4)',
-      [attendeeId, eventId, name, email]
+    const result = await query(
+      `INSERT INTO attendees (id, event_id, organization_id, name, email)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [attendeeId, eventId, organizationId, normalizedName, normalizedEmail]
     );
 
-    await enqueueReminders(client, {
-      organizationId: req.user.organizationId,
-      eventId,
-      attendeeId,
-      attendeeEmail: email,
-      eventDate: event_date,
-      eventTime: event_time,
-      reminders: remindersResult.rows,
-    });
+    if (isEmailTypeEnabled(settings, 'confirmation')) {
+      await query(
+        `INSERT INTO email_queue
+           (id, organization_id, event_id, attendee_id, attendee_email,
+            template_type, email_theme_id, status, send_at)
+         VALUES
+           (uuid_generate_v4(), $1, $2, $3, $4, 'confirmation', $5, 'pending', CURRENT_TIMESTAMP)`,
+        [organizationId, eventId, result.rows[0].id, normalizedEmail, themeId]
+      );
+    }
 
-    await client.query('COMMIT');
-
-    res.status(201).json({
-      message: 'Attendee added successfully',
-      attendeeId,
-    });
+    return res.status(201).json({ success: true, attendeeId: result.rows[0].id });
   } catch (error) {
-    await client.query('ROLLBACK');
     console.error('Error adding attendee:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  } finally {
-    client.release();
+    return res.status(500).json({ error: 'Failed to add attendee' });
   }
 });
 
-// ---------------------------------------------------------------------------
-// POST /api/attendees/:eventId/bulk-upload  — upload attendees from CSV
-// ---------------------------------------------------------------------------
+// ── POST /api/attendees/:eventId/bulk-upload — CSV import ─────────────────
+
 router.post('/:eventId/bulk-upload', async (req: Request, res: Response) => {
-  const client = await getClient();
+  const { eventId }    = req.params;
+  const { attendees }  = req.body;
+  const organizationId = req.user?.organizationId;
+
+  if (!organizationId) return res.status(401).json({ error: 'Unauthorized' });
+  if (!isUuid(eventId)) return res.status(400).json({ error: 'Invalid event id' });
+  if (!Array.isArray(attendees)) return res.status(400).json({ error: 'Invalid attendees data' });
+  if (attendees.length > 500) {
+    return res.status(400).json({ error: 'Bulk upload is limited to 500 attendees at a time' });
+  }
+
   try {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const { eventId } = req.params;
-    const { attendees } = req.body;
-
-    if (!Array.isArray(attendees) || attendees.length === 0) {
-      return res.status(400).json({ error: 'Attendees array is required' });
-    }
-
-    // Verify event ownership and grab date/time in one query
-    const eventCheck = await client.query(
-      'SELECT organization_id, event_date, event_time FROM events WHERE id = $1',
-      [eventId]
+    // Fetch event details including the chosen email theme
+    const eventRes = await query(
+      `SELECT e.event_date, e.event_time, e.email_theme_id, o.settings
+       FROM events e
+       JOIN organizations o ON o.id = e.organization_id
+       WHERE e.id = $1
+         AND e.organization_id = $2
+         AND ($3::uuid IS NULL OR e.created_by = $3::uuid)`,
+      [eventId, organizationId, getOwnerScope(req)]
     );
 
-    if (
-      eventCheck.rows.length === 0 ||
-      eventCheck.rows[0].organization_id !== req.user.organizationId
-    ) {
-      return res.status(404).json({ error: 'Event not found' });
+    if (eventRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Event not found.' });
     }
 
-    const { event_date, event_time } = eventCheck.rows[0];
+    const { event_date, event_time, email_theme_id, settings } = eventRes.rows[0];
+    const themeId = email_theme_id || 'minimal_light';
 
-    // Validate the event date/time once up front before touching any attendees
-    const eventDateTime = parseEventDateTime(event_date, event_time);
-    if (isNaN(eventDateTime.getTime())) {
-      return res.status(400).json({ error: 'Event date or time is invalid.' });
+    const eventDateTimeString = `${new Date(event_date).toISOString().split('T')[0]}T${event_time}`;
+    const isEventInFuture     = new Date(eventDateTimeString).getTime() > Date.now();
+    const shouldQueueConfirmation = isEmailTypeEnabled(settings, 'confirmation');
+
+    // Validate and normalise rows from the CSV
+    const normalizedAttendees = attendees
+      .map((a: any) => ({
+        name:  normalizeName(a?.name),
+        email: normalizeEmail(a?.email),
+      }))
+      .filter((a): a is { name: string; email: string } =>
+        Boolean(a.name && a.email)
+      );
+
+    if (normalizedAttendees.length === 0) {
+      return res.status(400).json({ error: 'No valid attendees were found in the upload' });
     }
 
-    const remindersResult = await client.query(
-      'SELECT type, hours_before FROM reminders WHERE event_id = $1',
-      [eventId]
+    // Bulk insert attendees (ignore duplicates)
+    const attendeeValues = normalizedAttendees
+      .map((_, i) => {
+        const o = i * 4;
+        return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4})`;
+      })
+      .join(', ');
+
+    const attendeeParams = normalizedAttendees.flatMap((a) => [
+      eventId, organizationId, a.name, a.email,
+    ]);
+
+    const newAttendeesRes = await query(
+      `INSERT INTO attendees (event_id, organization_id, name, email)
+       VALUES ${attendeeValues}
+       ON CONFLICT DO NOTHING
+       RETURNING id, email`,
+      attendeeParams
     );
 
-    // Fetch existing emails for this event to skip duplicates
-    const existingResult = await client.query(
-      'SELECT email FROM attendees WHERE event_id = $1',
-      [eventId]
-    );
-    const existingEmails = new Set(existingResult.rows.map((r: { email: string }) => r.email));
+    const savedAttendees = newAttendeesRes.rows;
 
-    let addedCount = 0;
-    const errors: string[] = [];
+    // Queue confirmation emails with the event's chosen theme
+    if (isEventInFuture && savedAttendees.length > 0 && shouldQueueConfirmation) {
+      const queueValues = savedAttendees
+        .map((_, i) => {
+          const o = i * 5;
+          return `(uuid_generate_v4(), $${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, 'confirmation', $${o + 5}, 'pending', CURRENT_TIMESTAMP)`;
+        })
+        .join(', ');
 
-    await client.query('BEGIN');
+      const queueParams = savedAttendees.flatMap((a) => [
+        organizationId,
+        eventId,
+        a.id,
+        a.email,
+        themeId,   // ← the event's saved email theme
+      ]);
 
-    for (const att of attendees) {
-      try {
-        if (!att.name || !att.email) {
-          errors.push(`Invalid attendee: ${JSON.stringify(att)}`);
-          continue;
-        }
+      await query(
+        `INSERT INTO email_queue
+           (id, organization_id, event_id, attendee_id, attendee_email,
+            template_type, email_theme_id, status, send_at)
+         VALUES ${queueValues}`,
+        queueParams
+      );
 
-        if (existingEmails.has(att.email)) {
-          errors.push(`Skipped duplicate: ${att.email}`);
-          continue;
-        }
-
-        const attendeeId = uuidv4();
-
-        await client.query(
-          'INSERT INTO attendees (id, event_id, name, email) VALUES ($1, $2, $3, $4)',
-          [attendeeId, eventId, att.name, att.email]
-        );
-
-        await enqueueReminders(client, {
-          organizationId: req.user.organizationId,
-          eventId,
-          attendeeId,
-          attendeeEmail: att.email,
-          eventDate: event_date,
-          eventTime: event_time,
-          reminders: remindersResult.rows,
-        });
-
-        existingEmails.add(att.email); // prevent intra-batch duplicates
-        addedCount++;
-      } catch (err) {
-        errors.push(`Error adding ${att.email}: ${err}`);
-      }
+      return res.status(200).json({
+        addedCount: savedAttendees.length,
+        message: `Imported ${savedAttendees.length} attendees and queued confirmation emails.`,
+      });
     }
 
-    await client.query('COMMIT');
-
-    res.json({
-      message: `${addedCount} attendees added successfully`,
-      addedCount,
-      errors: errors.length > 0 ? errors : undefined,
+    return res.status(200).json({
+      addedCount: savedAttendees.length,
+      message: shouldQueueConfirmation
+        ? `Imported ${savedAttendees.length} attendees. Emails skipped — event has passed or attendees were duplicates.`
+        : `Imported ${savedAttendees.length} attendees. Confirmation emails are disabled in organisation settings.`,
     });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error uploading attendees:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  } finally {
-    client.release();
+  } catch (error: any) {
+    console.error('Import error:', error);
+    return res.status(500).json({ error: 'Failed to import attendees.' });
   }
 });
 
-// ---------------------------------------------------------------------------
-// DELETE /api/attendees/remove/:id  — delete an attendee
-// ---------------------------------------------------------------------------
-// Route renamed from /:id to /remove/:id to avoid colliding with
-// GET/POST /:eventId which share the same /:param pattern.
+// ── DELETE /api/attendees/remove/:id ─────────────────────────────────────
+
 router.delete('/remove/:id', async (req: Request, res: Response) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    const { id }         = req.params;
+    const organizationId = req.user?.organizationId;
 
-    const { id } = req.params;
+    if (!organizationId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid attendee id' });
 
-    const attendeeCheck = await query(
-      `SELECT a.event_id, e.organization_id FROM attendees a
-       JOIN events e ON a.event_id = e.id
-       WHERE a.id = $1`,
-      [id]
+    const deleted = await query(
+      `DELETE FROM attendees a
+       USING events e
+       WHERE a.id = $1
+         AND a.organization_id = $2
+         AND a.event_id = e.id
+         AND e.organization_id = $2
+         AND ($3::uuid IS NULL OR e.created_by = $3::uuid)
+       RETURNING a.id`,
+      [id, organizationId, getOwnerScope(req)]
     );
 
-    if (
-      attendeeCheck.rows.length === 0 ||
-      attendeeCheck.rows[0].organization_id !== req.user.organizationId
-    ) {
+    if (deleted.rows.length === 0) {
       return res.status(404).json({ error: 'Attendee not found' });
     }
 
-    await query('DELETE FROM attendees WHERE id = $1', [id]);
+    await query('DELETE FROM email_queue WHERE attendee_id = $1', [id]);
 
-    res.json({ message: 'Attendee deleted successfully' });
+    return res.json({ success: true });
   } catch (error) {
     console.error('Error deleting attendee:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Failed to delete attendee' });
   }
 });
 
