@@ -26,8 +26,9 @@ const PORT = process.env.PORT || 3001;
 // Hardcoded + env-var origins — belt and suspenders approach.
 // The Vercel URLs are hardcoded so a missing env var can never block login.
 const HARDCODED_ORIGINS = [
+  'https://reminderflow-ten.vercel.app',            // ← actual frontend URL
   'https://reminderflow-frontend.vercel.app',
-  'https://reminderflow-frontend-qct7.vercel.app', // alternate Vercel preview URL
+  'https://reminderflow-frontend-qct7.vercel.app',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
 ];
@@ -36,7 +37,7 @@ function getAllowedOrigins(): Set<string> {
   return new Set([
     ...HARDCODED_ORIGINS,
     process.env.FRONTEND_URL,
-    process.env.NEXT_PUBLIC_API_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
   ].filter(Boolean) as string[]);
 }
 
