@@ -50,7 +50,7 @@ coverage/
 # Database dumps
 *.sql
 *.dump
-.src/database/schema.sql
+!src/database/schema.sql
 
 # Docker
 .docker-compose.override.yml
