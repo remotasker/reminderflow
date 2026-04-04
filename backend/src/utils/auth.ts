@@ -10,9 +10,7 @@ export const REFRESH_COOKIE_NAME = 'refresh_token';
 
 function getRequiredEnv(name: 'JWT_ACCESS_SECRET' | 'JWT_REFRESH_SECRET'): string {
   const value = process.env[name];
-  if (!value) {
-    throw new Error(`${name} must be set`);
-  }
+  if (!value) throw new Error(`${name} must be set`);
   return value;
 }
 
@@ -46,10 +44,6 @@ export async function comparePasswords(plain: string, hash: string): Promise<boo
 
 // ── Token generation ──────────────────────────────────────────────────────────
 
-/**
- * Short-lived access token (15 minutes).
- * Sent on every authenticated request via httpOnly cookie.
- */
 export function generateAccessToken(payload: JWTPayload): string {
   return jwt.sign(payload, getRequiredEnv('JWT_ACCESS_SECRET'), {
     expiresIn: '15m',
@@ -57,10 +51,6 @@ export function generateAccessToken(payload: JWTPayload): string {
   });
 }
 
-/**
- * Long-lived refresh token (7 days).
- * Stored hashed in the DB; cookie is scoped to /api/auth/refresh only.
- */
 export function generateRefreshToken(payload: JWTPayload): string {
   return jwt.sign(payload, getRequiredEnv('JWT_REFRESH_SECRET'), {
     expiresIn: '7d',
@@ -87,28 +77,42 @@ export function verifyRefreshToken(token: string): JWTPayload | null {
 }
 
 // ── Cookie options ────────────────────────────────────────────────────────────
+//
+// Cross-origin cookie rules (frontend on Vercel, backend on separate domain):
+//
+//   sameSite: 'none'  — REQUIRED when frontend and backend are on different
+//                       domains. 'lax' silently blocks cookies cross-origin,
+//                       which causes login to appear to succeed but the session
+//                       is never established.
+//
+//   secure: true      — REQUIRED when sameSite is 'none'. Browsers reject
+//                       sameSite=none cookies on non-HTTPS connections.
+//
+// In local development both are relaxed so http://localhost works normally.
 
 export function getAuthCookieOptions() {
+  const prod = isProduction();
   return {
     httpOnly: true,
-    secure:   isProduction(),
-    sameSite: 'lax' as const,
+    secure:   prod,
+    sameSite: (prod ? 'none' : 'lax') as 'none' | 'lax',
     path:     '/',
-    maxAge:   15 * 60 * 1000,  // 15 minutes — matches token TTL
+    maxAge:   15 * 60 * 1000,
   };
 }
 
 export function getRefreshCookieOptions() {
+  const prod = isProduction();
   return {
     httpOnly: true,
-    secure:   isProduction(),
-    sameSite: 'lax' as const,
-    // Scoped to the refresh endpoint only so the cookie is never sent
-    // on regular API calls, reducing the attack surface.
+    secure:   prod,
+    sameSite: (prod ? 'none' : 'lax') as 'none' | 'lax',
     path:     '/api/auth/refresh',
-    maxAge:   7 * 24 * 60 * 60 * 1000,  // 7 days — matches token TTL
+    maxAge:   7 * 24 * 60 * 60 * 1000,
   };
 }
+
+// ── Cookie parsing ────────────────────────────────────────────────────────────
 
 export function parseCookieHeader(cookieHeader?: string): Record<string, string> {
   if (!cookieHeader) return {};
@@ -120,16 +124,13 @@ export function parseCookieHeader(cookieHeader?: string): Record<string, string>
     .reduce<Record<string, string>>((cookies, part) => {
       const separatorIndex = part.indexOf('=');
       if (separatorIndex <= 0) return cookies;
-
-      const key = part.slice(0, separatorIndex).trim();
+      const key   = part.slice(0, separatorIndex).trim();
       const value = part.slice(separatorIndex + 1).trim();
-
       try {
         cookies[key] = decodeURIComponent(value);
       } catch {
         cookies[key] = value;
       }
-
       return cookies;
     }, {});
 }
@@ -138,7 +139,7 @@ export function getCookie(req: Request, name: string): string | null {
   return parseCookieHeader(req.headers.cookie)[name] ?? null;
 }
 
-// ── Legacy helper (kept for backwards-compat, prefer the typed helpers above) ─
+// ── Legacy helpers (deprecated) ───────────────────────────────────────────────
 
 /** @deprecated Use verifyAccessToken instead */
 export function extractTokenFromRequest(req: Request): string | null {
