@@ -34,7 +34,7 @@ export function AuthForm({ isSignup = false, onLoginSuccess }: AuthFormProps) {
       const message =
         error.response?.data?.error ||
         (error.request
-          ? 'Unable to reach the server. Make sure the backend is running on http://localhost:3001.'
+          ? 'Unable to reach the server. Make sure the backend is running.'
           : 'Authentication failed. Please try again.');
       toast.error(message);
     } finally {

@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { clearAuthState } from './auth';
-
+console.log('VERCEL ENV CHECK:', process.env.NEXT_PUBLIC_API_URL);
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 const api: AxiosInstance = axios.create({
@@ -26,7 +26,7 @@ async function silentRefresh(): Promise<void> {
   if (res.status !== 200) throw new Error('Refresh failed');
 }
 
-// ── Response interceptor ──────────────────────────────────────────────────────
+// ── Response interceptor ───────────────────────────────────────────────────
 
 api.interceptors.response.use(
   (response) => response,
