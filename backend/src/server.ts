@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { initializeDatabase } from './database/db';
 import authRoutes      from './routes/auth';
 import eventRoutes     from './routes/events';
@@ -20,31 +21,61 @@ import { assertAuthConfig } from './utils/auth';
 const app  = express();
 const PORT = process.env.PORT || 3001;
 
-const allowedOrigins = new Set(
-  [
-    process.env.FRONTEND_URL,
-    process.env.NEXT_PUBLIC_APP_URL,
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-  ].filter(Boolean)
-);
+// ── Allowed origins ───────────────────────────────────────────────────────────
+
+// Read allowed origins at request time (not at startup) so Railway
+// env var changes take effect without a redeploy, and so the Set is
+// never built from stale/missing values during the boot sequence.
+function getAllowedOrigins(): Set<string> {
+  return new Set(
+    [
+      process.env.FRONTEND_URL,
+      process.env.NEXT_PUBLIC_APP_URL,
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+    ].filter(Boolean) as string[]
+  );
+}
+
+function corsOriginHandler(
+  origin: string | undefined,
+  callback: (err: Error | null, allow?: boolean) => void
+) {
+  // Log on every request so Railway logs show the exact origin being checked
+  // and what origins are currently allowed. Remove once confirmed working.
+  const allowed = getAllowedOrigins();
+  console.log(`[CORS] origin=${origin ?? 'none'} allowed=[${[...allowed].join(', ')}]`);
+
+  if (!origin || allowed.has(origin)) {
+    callback(null, true);
+  } else {
+    callback(new Error(`CORS: origin ${origin} not allowed`));
+  }
+}
+
+const corsOptions: cors.CorsOptions = {
+  origin:       corsOriginHandler,
+  credentials:  true,
+  methods:      ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  // Tell the browser it can cache the preflight result for 10 minutes
+  // so it doesn't fire an OPTIONS request on every single API call.
+  maxAge: 600,
+};
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin || allowedOrigins.has(origin)) {
-      callback(null, true);
-      return;
-    }
+// ── CORS ──────────────────────────────────────────────────────────────────────
+// Must be registered BEFORE all routes.
+// The app.options('*') line is the critical fix — it tells Express to
+// respond to preflight OPTIONS requests immediately with the correct
+// CORS headers instead of falling through to route handlers that don't
+// handle OPTIONS and return a 404/405.
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));  // ← handle ALL preflight requests
 
-    callback(new Error('Origin not allowed by CORS'));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+// ── Security headers ──────────────────────────────────────────────────────────
 
 app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -57,44 +88,57 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── Body parsing + cookies ────────────────────────────────────────────────────
+
 app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: false, limit: '50kb' }));
+app.use(cookieParser());  // ← required for req.cookies to work
 
-// Health check
+// ── Health check ──────────────────────────────────────────────────────────────
+
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', message: 'ReminderFlow API is running' });
 });
 
-// Public routes
-app.use('/api/auth',  authRoutes);
-app.use('/api/email', emailRoutes);
+// ── Public routes ─────────────────────────────────────────────────────────────
+
+app.use('/api/auth',   authRoutes);
+app.use('/api/email',  emailRoutes);
 app.use('/api/public', publicRoutes);
 
-// Protected routes — any authenticated user
+// ── Protected routes ──────────────────────────────────────────────────────────
+
 app.use('/api/events',    authMiddleware, eventRoutes);
 app.use('/api/attendees', authMiddleware, attendeeRoutes);
 app.use('/api/analytics', authMiddleware, analyticsRoutes);
 app.use('/api/settings',  authMiddleware, settingsRoutes);
 app.use('/api/support',   authMiddleware, supportRoutes);
 
-// Admin-only routes
+// ── Admin-only routes ─────────────────────────────────────────────────────────
+
 app.use('/api/templates', authMiddleware, requireAdmin, templateRoutes);
 app.use('/api/org',       authMiddleware, orgRoutes);
 
-// Error handling
-app.use((_err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('Unhandled error:', _err);
-  if (_err.message === 'Unauthorized') return res.status(401).json({ error: 'Unauthorized' });
-  if (_err.message === 'Forbidden')    return res.status(403).json({ error: 'Forbidden' });
-  if (_err.message === 'Origin not allowed by CORS') {
+// ── Error handler ─────────────────────────────────────────────────────────────
+
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('Unhandled error:', err);
+  if (err.message === 'Unauthorized')
+    return res.status(401).json({ error: 'Unauthorized' });
+  if (err.message === 'Forbidden')
+    return res.status(403).json({ error: 'Forbidden' });
+  if (err.message?.startsWith('CORS:'))
     return res.status(403).json({ error: 'Origin not allowed' });
-  }
   res.status(500).json({ error: 'Internal server error' });
 });
+
+// ── 404 ───────────────────────────────────────────────────────────────────────
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
+
+// ── Startup ───────────────────────────────────────────────────────────────────
 
 async function startServer(): Promise<void> {
   try {
