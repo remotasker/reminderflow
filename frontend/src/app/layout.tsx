@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import '@/styles/globals.css';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from 'react-hot-toast';
-
+import { SpeedInsights } from "@vercel/speed-insights/next";
 export const metadata: Metadata = {
   title: 'ReminderFlow',
   description: 'Multi-tenant SaaS platform for scheduling reminder emails',
