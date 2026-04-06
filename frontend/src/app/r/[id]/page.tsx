@@ -31,7 +31,7 @@ interface PublicEvent {
   form_schema: FormField[] | null;
 }
 
-// CHANGED: Added text-base for mobile (prevents iOS zoom), md:text-sm for desktop
+// Custom Premium ReminderFlow Input Styling (with mobile zoom fix)
 const inputCls = "w-full px-5 py-3.5 bg-slate-50 dark:bg-slate-800/30 border border-slate-200/80 dark:border-slate-700/50 rounded-[16px] text-base md:text-sm font-normal text-slate-900 dark:text-white outline-none focus:bg-white dark:focus:bg-slate-800/80 focus:border-slate-400 dark:focus:border-slate-500 transition-all placeholder:text-slate-400";
 
 export default function PublicRegistrationPage() {
@@ -246,10 +246,9 @@ export default function PublicRegistrationPage() {
       </div>
 
       {/* --- RIGHT COLUMN: The Form --- */}
-      {/* CHANGED: Adjusted mobile padding to avoid touching screen edges */}
-      <div className="flex-1 lg:ml-[41.666667%] xl:ml-[33.333333%] flex items-center justify-center p-4 sm:p-8 lg:p-12 relative">
+      {/* ADDED flex-col and w-full here to fix the side-by-side bug */}
+      <div className="flex-1 w-full lg:ml-[41.666667%] xl:ml-[33.333333%] flex flex-col items-center justify-center p-4 sm:p-8 lg:p-12 relative">
         
-        {/* CHANGED: Adjusted p-6 sm:p-10 for better mobile spacing */}
         <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-[24px] shadow-sm border border-slate-200/80 dark:border-slate-800 p-6 sm:p-10 animate-in fade-in slide-in-from-bottom-8 duration-700">
           
           {success || hasRegisteredOnDevice ? (
@@ -345,7 +344,7 @@ export default function PublicRegistrationPage() {
                 </div>
               )}
 
-              {/* CHANGED: Added Privacy Consent Snippet right above the button */}
+              {/* Privacy Consent Snippet */}
               <div className="pt-6 mt-6 border-t border-slate-100 dark:border-slate-800/50">
                 <p className="text-center text-xs text-slate-500 dark:text-slate-400 mb-4 px-2">
                   By registering, you agree to our{' '}
