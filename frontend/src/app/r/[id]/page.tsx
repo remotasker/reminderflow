@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 import {
   Calendar, Clock, ShieldCheck,
   CheckCircle2, Loader2, MonitorSmartphone,
-  MapPin, AlignLeft, Sparkles
+  MapPin, Sparkles
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -31,8 +31,8 @@ interface PublicEvent {
   form_schema: FormField[] | null;
 }
 
-// Custom Premium ReminderFlow Input Styling
-const inputCls = "w-full px-5 py-3.5 bg-slate-50 dark:bg-slate-800/30 border border-slate-200/80 dark:border-slate-700/50 rounded-[16px] text-sm font-normal text-slate-900 dark:text-white outline-none focus:bg-white dark:focus:bg-slate-800/80 focus:border-slate-400 dark:focus:border-slate-500 transition-all placeholder:text-slate-400";
+// CHANGED: Added text-base for mobile (prevents iOS zoom), md:text-sm for desktop
+const inputCls = "w-full px-5 py-3.5 bg-slate-50 dark:bg-slate-800/30 border border-slate-200/80 dark:border-slate-700/50 rounded-[16px] text-base md:text-sm font-normal text-slate-900 dark:text-white outline-none focus:bg-white dark:focus:bg-slate-800/80 focus:border-slate-400 dark:focus:border-slate-500 transition-all placeholder:text-slate-400";
 
 export default function PublicRegistrationPage() {
   const params  = useParams();
@@ -150,8 +150,8 @@ export default function PublicRegistrationPage() {
   if (loading) return <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center"><Loader2 className="animate-spin text-slate-400 dark:text-slate-600" size={32} /></div>;
   
   if (pageError && !event) return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 text-center font-sans">
-      <div className="bg-white dark:bg-slate-900 rounded-[24px] shadow-sm border border-slate-200/80 dark:border-slate-800 p-10 max-w-md w-full">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4 sm:p-6 text-center font-sans">
+      <div className="bg-white dark:bg-slate-900 rounded-[24px] shadow-sm border border-slate-200/80 dark:border-slate-800 p-8 sm:p-10 max-w-md w-full">
         <ShieldCheck size={48} className="text-slate-300 dark:text-slate-700 mx-auto mb-4" />
         <h1 className="text-xl font-medium text-slate-900 dark:text-white mb-2">Event Unavailable</h1>
         <p className="text-sm text-slate-500 font-normal">{pageError}</p>
@@ -163,9 +163,9 @@ export default function PublicRegistrationPage() {
     <div className="min-h-screen flex flex-col lg:flex-row bg-slate-50 dark:bg-slate-950 font-sans">
       
       {/* --- LEFT COLUMN: Premium Monochromatic Event Details --- */}
-      <div className="lg:w-5/12 xl:w-1/3 bg-slate-950 text-white p-8 lg:p-12 lg:fixed lg:inset-y-0 lg:left-0 flex flex-col justify-between border-r border-slate-800 relative overflow-hidden">
+      <div className="lg:w-5/12 xl:w-1/3 bg-slate-950 text-white p-8 lg:p-12 lg:fixed lg:inset-y-0 lg:left-0 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-slate-800 relative overflow-hidden">
         
-        {/* Subtle Background Glows (Matching Login Page) */}
+        {/* Subtle Background Glows */}
         <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
           <div className="absolute -top-20 -right-20 w-64 h-64 bg-slate-800/40 rounded-full blur-3xl"></div>
           <div className="absolute -bottom-20 -left-20 w-80 h-80 bg-slate-800/30 rounded-full blur-3xl"></div>
@@ -173,7 +173,7 @@ export default function PublicRegistrationPage() {
 
         <div className="relative z-10">
           {/* Brand */}
-          <div className="flex items-center gap-2.5 mb-12">
+          <div className="flex items-center gap-2.5 mb-10 lg:mb-12">
             <div className="bg-white/5 backdrop-blur-md p-2 rounded-lg border border-white/10 shadow-sm flex items-center justify-center">
               <Sparkles size={16} className="text-slate-300" />
             </div>
@@ -191,7 +191,6 @@ export default function PublicRegistrationPage() {
                 {event?.title}
               </h1>
               
-              {/* Event Description */}
               {event?.description && (
                 <p className="text-sm text-slate-400 font-normal leading-relaxed">
                   {event.description}
@@ -202,7 +201,7 @@ export default function PublicRegistrationPage() {
             <div className="space-y-5 pt-6 border-t border-slate-800/50 mt-6">
               {event?.event_date && (
                 <div className="flex items-center gap-4 text-slate-300">
-                  <div className="w-10 h-10 rounded-full bg-slate-900 flex items-center justify-center border border-slate-800 shadow-sm">
+                  <div className="w-10 h-10 shrink-0 rounded-full bg-slate-900 flex items-center justify-center border border-slate-800 shadow-sm">
                     <Calendar size={16} className="text-slate-400" />
                   </div>
                   <div>
@@ -214,7 +213,7 @@ export default function PublicRegistrationPage() {
               
               {event?.event_time && (
                 <div className="flex items-center gap-4 text-slate-300">
-                  <div className="w-10 h-10 rounded-full bg-slate-900 flex items-center justify-center border border-slate-800 shadow-sm">
+                  <div className="w-10 h-10 shrink-0 rounded-full bg-slate-900 flex items-center justify-center border border-slate-800 shadow-sm">
                     <Clock size={16} className="text-slate-400" />
                   </div>
                   <div>
@@ -226,7 +225,7 @@ export default function PublicRegistrationPage() {
 
               {event?.meeting_link && (
                 <div className="flex items-center gap-4 text-slate-300">
-                  <div className="w-10 h-10 rounded-full bg-slate-900 flex items-center justify-center border border-slate-800 shadow-sm">
+                  <div className="w-10 h-10 shrink-0 rounded-full bg-slate-900 flex items-center justify-center border border-slate-800 shadow-sm">
                     <MapPin size={16} className="text-slate-400" />
                   </div>
                   <div>
@@ -247,12 +246,14 @@ export default function PublicRegistrationPage() {
       </div>
 
       {/* --- RIGHT COLUMN: The Form --- */}
+      {/* CHANGED: Adjusted mobile padding to avoid touching screen edges */}
       <div className="flex-1 lg:ml-[41.666667%] xl:ml-[33.333333%] flex items-center justify-center p-4 sm:p-8 lg:p-12 relative">
         
-        <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-[24px] shadow-sm border border-slate-200/80 dark:border-slate-800 p-8 sm:p-10 animate-in fade-in slide-in-from-bottom-8 duration-700">
+        {/* CHANGED: Adjusted p-6 sm:p-10 for better mobile spacing */}
+        <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-[24px] shadow-sm border border-slate-200/80 dark:border-slate-800 p-6 sm:p-10 animate-in fade-in slide-in-from-bottom-8 duration-700">
           
           {success || hasRegisteredOnDevice ? (
-            <div className="text-center py-10">
+            <div className="text-center py-8 sm:py-10">
               <div className="w-20 h-20 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50 rounded-full flex items-center justify-center mx-auto mb-6">
                 {success ? <CheckCircle2 size={32} className="text-emerald-500" /> : <MonitorSmartphone size={32} className="text-slate-400" />}
               </div>
@@ -268,7 +269,7 @@ export default function PublicRegistrationPage() {
           ) : (
             <form onSubmit={handleSubmit} className="space-y-6">
               
-              <div className="mb-8">
+              <div className="mb-6 sm:mb-8">
                 <h2 className="text-xl font-medium text-slate-900 dark:text-white mb-1.5 tracking-tight">Complete Registration</h2>
                 <p className="text-sm text-slate-500 font-normal">Please provide your details below to secure your spot.</p>
               </div>
@@ -290,7 +291,6 @@ export default function PublicRegistrationPage() {
                   {customFields.map(field => (
                     <div key={field.id} className="space-y-2">
                       
-                      {/* Label for everything except single checkbox */}
                       {field.type !== 'checkbox' && (
                         <label className="text-xs font-medium text-slate-500 uppercase tracking-widest ml-1">
                           {field.label} {field.required && <span className="text-slate-400">*</span>}
@@ -305,7 +305,7 @@ export default function PublicRegistrationPage() {
                           <div className="flex items-center gap-3">
                             <input 
                               type="checkbox"
-                              className="w-5 h-5 accent-slate-900 dark:accent-white rounded cursor-pointer"
+                              className="w-5 h-5 accent-slate-900 dark:accent-white rounded cursor-pointer shrink-0"
                               checked={customAnswers[field.id] as boolean ?? false}
                               onChange={e => setCustomAnswers(p => ({ ...p, [field.id]: e.target.checked }))}
                               required={field.required && !(customAnswers[field.id])} 
@@ -314,7 +314,7 @@ export default function PublicRegistrationPage() {
                               {field.label} {field.required && <span className="text-slate-400 ml-1">*</span>}
                             </span>
                           </div>
-                          <div className={`text-[10px] font-medium uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all ${customAnswers[field.id] ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}`}>
+                          <div className={`text-[10px] font-medium uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all shrink-0 ${customAnswers[field.id] ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}`}>
                             {customAnswers[field.id] ? 'Yes' : 'No'}
                           </div>
                         </label>
@@ -327,7 +327,7 @@ export default function PublicRegistrationPage() {
                               <label key={idx} className={`flex items-center gap-3 cursor-pointer p-3.5 rounded-[12px] border transition-all ${isChecked ? 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-600' : 'bg-transparent border-slate-200/80 dark:border-slate-700/50 hover:border-slate-300 dark:hover:border-slate-600'}`}>
                                 <input 
                                   type="checkbox" 
-                                  className="w-4 h-4 accent-slate-900 dark:accent-white rounded cursor-pointer" 
+                                  className="w-4 h-4 accent-slate-900 dark:accent-white rounded cursor-pointer shrink-0" 
                                   checked={isChecked} 
                                   onChange={e => toggleCheckboxGroup(field.id, opt, e.target.checked)} 
                                 />
@@ -345,8 +345,15 @@ export default function PublicRegistrationPage() {
                 </div>
               )}
 
+              {/* CHANGED: Added Privacy Consent Snippet right above the button */}
               <div className="pt-6 mt-6 border-t border-slate-100 dark:border-slate-800/50">
-                <button type="submit" disabled={submitting} className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-medium rounded-[16px] hover:bg-slate-800 dark:hover:bg-slate-100 active:scale-[0.98] transition-all shadow-sm disabled:opacity-70 disabled:active:scale-100">
+                <p className="text-center text-xs text-slate-500 dark:text-slate-400 mb-4 px-2">
+                  By registering, you agree to our{' '}
+                  <a href="/terms" className="font-semibold text-slate-700 dark:text-slate-300 hover:text-blue-600 transition-colors" target="_blank" rel="noopener noreferrer">Terms</a>
+                  {' '}and{' '}
+                  <a href="/privacy" className="font-semibold text-slate-700 dark:text-slate-300 hover:text-blue-600 transition-colors" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.
+                </p>
+                <button type="submit" disabled={submitting} className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm md:text-base font-medium rounded-[16px] hover:bg-slate-800 dark:hover:bg-slate-100 active:scale-[0.98] transition-all shadow-sm disabled:opacity-70 disabled:active:scale-100">
                   {submitting ? <Loader2 size={18} className="animate-spin" /> : 'Confirm Registration'}
                 </button>
               </div>
