@@ -1,7 +1,17 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { query } from '../database/db';
+import { getClient, query } from '../database/db';
 import { requireManagerOrAdmin } from '../middleware/rbac';
+import {
+  buildReminderRowsFromSchedule,
+  DEFAULT_EVENT_REMINDER_SCHEDULE,
+  isReminderType,
+  normalizeReminderSchedule,
+  rebuildPendingReminderQueueForEvent,
+  reminderScheduleFromRows,
+  replaceEventReminderDefinitions,
+  toDateOnlyString,
+} from '../services/reminders';
 import {
   exceedsJsonSize,
   isPlainObject,
@@ -20,7 +30,6 @@ router.use(requireManagerOrAdmin);
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{2}:\d{2}(:\d{2})?$/;
-const ALLOWED_REMINDER_TYPES = new Set(['confirmation', '24h', '1h', '10m']);
 const ALLOWED_FORM_FIELD_TYPES = new Set(['text', 'textarea', 'checkbox', 'checkbox_group']);
 
 function isValidDate(val: unknown): val is string {
@@ -180,11 +189,11 @@ router.post('/', async (req: Request, res: Response) => {
     if (formSchemaError) {
       return res.status(400).json({ error: formSchemaError });
     }
-    if (reminderSchedule !== undefined && (!Array.isArray(reminderSchedule) || reminderSchedule.some((type) => !ALLOWED_REMINDER_TYPES.has(type)))) {
+    if (reminderSchedule !== undefined && (!Array.isArray(reminderSchedule) || reminderSchedule.some((type) => !isReminderType(type)))) {
       return res.status(400).json({ error: 'reminderSchedule contains an invalid reminder type' });
     }
     
-    const dateToValidate = finalEventDate instanceof Date ? finalEventDate.toISOString().split('T')[0] : finalEventDate;
+    const dateToValidate = finalEventDate instanceof Date ? toDateOnlyString(finalEventDate) : finalEventDate;
     
     if (!isValidDate(dateToValidate)) {
       return res.status(400).json({ error: 'event_date must be in YYYY-MM-DD format' });
@@ -194,40 +203,39 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     const eventId = uuidv4();
+    const finalReminderSchedule = reminderSchedule === undefined
+      ? DEFAULT_EVENT_REMINDER_SCHEDULE
+      : normalizeReminderSchedule(reminderSchedule);
+    const client = await getClient();
 
-    await query(
-      `INSERT INTO events (id, organization_id, title, description, event_date, event_time, timezone, meeting_link, email_theme_id, created_by, form_schema)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [
-        eventId, 
-        req.user.organizationId, 
-        normalizedTitle, 
-        normalizedDescription, 
-        dateToValidate, 
-        finalEventTime, 
-        normalizedTimezone, 
-        normalizedMeetingLink ?? null, 
-        finalEmailThemeId,
-        req.user.userId,
-        finalFormSchema ? JSON.stringify(finalFormSchema) : null
-      ]
-    );
+    try {
+      await client.query('BEGIN');
 
-    if (reminderSchedule && Array.isArray(reminderSchedule)) {
-      for (const reminderType of reminderSchedule) {
-        let hoursBefore: number | null = null;
-        if (reminderType === 'confirmation') hoursBefore = 0;
-        else if (reminderType === '24h')     hoursBefore = 24;
-        else if (reminderType === '1h')      hoursBefore = 1;
-        else if (reminderType === '10m')     hoursBefore = 0.167;
+      await client.query(
+        `INSERT INTO events (id, organization_id, title, description, event_date, event_time, timezone, meeting_link, email_theme_id, created_by, form_schema)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [
+          eventId,
+          req.user.organizationId,
+          normalizedTitle,
+          normalizedDescription,
+          dateToValidate,
+          finalEventTime,
+          normalizedTimezone,
+          normalizedMeetingLink ?? null,
+          finalEmailThemeId,
+          req.user.userId,
+          finalFormSchema ? JSON.stringify(finalFormSchema) : null
+        ]
+      );
 
-        if (hoursBefore !== null) {
-          await query(
-            `INSERT INTO reminders (id, event_id, type, hours_before) VALUES ($1, $2, $3, $4)`,
-            [uuidv4(), eventId, reminderType, hoursBefore]
-          );
-        }
-      }
+      await replaceEventReminderDefinitions(client, eventId, finalReminderSchedule);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
 
     return res.status(201).json({ message: 'Event created successfully', eventId });
@@ -304,7 +312,7 @@ router.get('/:id/calendar', async (req: Request, res: Response) => {
     }
 
     const e = eventResult.rows[0];
-    const dateStr = e.event_date instanceof Date ? e.event_date.toISOString().split('T')[0] : e.event_date;
+    const dateStr = toDateOnlyString(e.event_date);
     
     const dtStart = toICalDate(dateStr, e.event_time);
     
@@ -360,7 +368,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     }
     
     const { 
-      title, description, timezone, email_theme_id,
+      title, description, timezone, email_theme_id, reminderSchedule,
       form_schema, formSchema,
       eventDate, event_date, 
       eventTime, event_time, 
@@ -379,7 +387,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     const formSchemaError = validateFormSchema(finalFormSchema);
 
     if (finalEventDate !== undefined) {
-       const dateToValidate = finalEventDate instanceof Date ? finalEventDate.toISOString().split('T')[0] : finalEventDate;
+       const dateToValidate = finalEventDate instanceof Date ? toDateOnlyString(finalEventDate) : finalEventDate;
        if(!isValidDate(dateToValidate)) return res.status(400).json({ error: 'event_date must be in YYYY-MM-DD format' });
     }
     
@@ -398,42 +406,90 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (formSchemaError) {
       return res.status(400).json({ error: formSchemaError });
     }
+    if (reminderSchedule !== undefined && (!Array.isArray(reminderSchedule) || reminderSchedule.some((type) => !isReminderType(type)))) {
+      return res.status(400).json({ error: 'reminderSchedule contains an invalid reminder type' });
+    }
 
     const checkResult = await query(
-      `SELECT organization_id
-       FROM events
-       WHERE id = $1
-         AND organization_id = $2
-         AND ($3::uuid IS NULL OR created_by = $3::uuid)`,
+      `SELECT e.organization_id, e.event_date, e.event_time, e.email_theme_id, o.settings
+       FROM events e
+       JOIN organizations o ON o.id = e.organization_id
+       WHERE e.id = $1
+         AND e.organization_id = $2
+         AND ($3::uuid IS NULL OR e.created_by = $3::uuid)`,
       [id, req.user.organizationId, getOwnerScope(req)]
     );
 
     if (checkResult.rows.length === 0) return res.status(404).json({ error: 'Event not found' });
 
-    await query(
-      `UPDATE events SET
-         title        = COALESCE($1, title),
-         description  = COALESCE($2, description),
-         event_date   = COALESCE($3, event_date),
-         event_time   = COALESCE($4, event_time),
-         timezone     = COALESCE($5, timezone),
-         meeting_link = COALESCE($6, meeting_link),
-         email_theme_id = COALESCE($7, email_theme_id),
-         form_schema  = COALESCE($8, form_schema),
-         updated_at   = CURRENT_TIMESTAMP
-       WHERE id = $9`,
-      [
-        normalizedTitle ?? null, 
-        normalizedDescription ?? null, 
-        finalEventDate ?? null, 
-        finalEventTime ?? null, 
-        normalizedTimezone ?? null, 
-        normalizedMeetingLink ?? null, 
-        finalEmailThemeId ?? null,
-        finalFormSchema ? JSON.stringify(finalFormSchema) : null,
-        id
-      ]
+    const currentEvent = checkResult.rows[0];
+    const currentReminderRows = await query(
+      'SELECT type, hours_before FROM reminders WHERE event_id = $1 ORDER BY created_at ASC',
+      [id]
     );
+    const finalReminderSchedule = reminderSchedule === undefined
+      ? reminderScheduleFromRows(currentReminderRows.rows)
+      : normalizeReminderSchedule(reminderSchedule);
+    const nextEventDate = finalEventDate ?? currentEvent.event_date;
+    const nextEventTime = finalEventTime ?? currentEvent.event_time;
+    const nextThemeId = finalEmailThemeId ?? currentEvent.email_theme_id ?? 'minimal_light';
+    const client = await getClient();
+
+    try {
+      await client.query('BEGIN');
+
+      await client.query(
+        `UPDATE events SET
+           title        = COALESCE($1, title),
+           description  = COALESCE($2, description),
+           event_date   = COALESCE($3, event_date),
+           event_time   = COALESCE($4, event_time),
+           timezone     = COALESCE($5, timezone),
+           meeting_link = COALESCE($6, meeting_link),
+           email_theme_id = COALESCE($7, email_theme_id),
+           form_schema  = COALESCE($8, form_schema),
+           updated_at   = CURRENT_TIMESTAMP
+         WHERE id = $9`,
+        [
+          normalizedTitle ?? null,
+          normalizedDescription ?? null,
+          finalEventDate ?? null,
+          finalEventTime ?? null,
+          normalizedTimezone ?? null,
+          normalizedMeetingLink ?? null,
+          finalEmailThemeId ?? null,
+          finalFormSchema ? JSON.stringify(finalFormSchema) : null,
+          id
+        ]
+      );
+
+      if (reminderSchedule !== undefined) {
+        await replaceEventReminderDefinitions(client, id, finalReminderSchedule);
+      }
+
+      const attendeesResult = await client.query(
+        'SELECT id, email, whatsapp_number FROM attendees WHERE event_id = $1',
+        [id]
+      );
+
+      await rebuildPendingReminderQueueForEvent(client, {
+        eventId: id,
+        organizationId: currentEvent.organization_id,
+        eventDate: nextEventDate,
+        eventTime: nextEventTime,
+        themeId: nextThemeId,
+        settings: currentEvent.settings,
+        reminders: buildReminderRowsFromSchedule(finalReminderSchedule),
+        attendees: attendeesResult.rows,
+      });
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
 
     return res.json({ message: 'Event updated successfully' });
   } catch (error) {

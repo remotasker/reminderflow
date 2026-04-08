@@ -1,15 +1,28 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { query } from '../database/db';
+import { getClient, query } from '../database/db';
 import { requireManagerOrAdmin } from '../middleware/rbac';
+import { queueRemindersForAttendee } from '../services/reminders';
 import { isUuid, normalizeEmail, normalizeName } from '../utils/validation';
-import { isEmailTypeEnabled } from '../utils/settings';
 
 const router = Router();
 router.use(requireManagerOrAdmin);
 
 function getOwnerScope(req: Request): string | null {
   return req.user?.role === 'admin' ? null : req.user?.userId ?? null;
+}
+
+/** Normalise a WhatsApp number — ensures it starts with + and strips spaces.
+ *  Returns null if the value is falsy or not a plausible phone number. */
+function normalizeWhatsappNumber(raw?: string | null): string | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const cleaned = raw.replace(/\s+/g, '').trim();
+  if (!cleaned) return null;
+  // Accept numbers that already have + prefix, or add it if it starts with a digit
+  const withPlus = cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+  // Very light validation — must be +<digits> and at least 7 chars
+  if (!/^\+\d{7,15}$/.test(withPlus)) return null;
+  return withPlus;
 }
 
 // ── GET /api/attendees ────────────────────────────────────────────────────
@@ -20,7 +33,7 @@ router.get('/', async (req: Request, res: Response) => {
     if (!organizationId) return res.status(401).json({ error: 'Unauthorized' });
 
     const result = await query(
-      `SELECT a.id, a.name, a.email, a.created_at, a.responses,
+      `SELECT a.id, a.name, a.email, a.whatsapp_number, a.created_at, a.responses,
               e.title AS event_title, e.id AS event_id
        FROM attendees a
        JOIN events e ON a.event_id = e.id
@@ -48,7 +61,7 @@ router.get('/:eventId', async (req: Request, res: Response) => {
     if (!isUuid(eventId)) return res.status(400).json({ error: 'Invalid event id' });
 
     const result = await query(
-      `SELECT a.id, a.name, a.email, a.created_at, a.responses
+      `SELECT a.id, a.name, a.email, a.whatsapp_number, a.created_at, a.responses
        FROM attendees a
        JOIN events e ON a.event_id = e.id
        WHERE a.event_id = $1
@@ -69,11 +82,12 @@ router.get('/:eventId', async (req: Request, res: Response) => {
 
 router.post('/:eventId', async (req: Request, res: Response) => {
   try {
-    const { eventId }     = req.params;
-    const { name, email } = req.body;
-    const organizationId  = req.user?.organizationId;
-    const normalizedName  = normalizeName(name);
-    const normalizedEmail = normalizeEmail(email);
+    const { eventId }                = req.params;
+    const { name, email, whatsappNumber } = req.body;
+    const organizationId             = req.user?.organizationId;
+    const normalizedName             = normalizeName(name);
+    const normalizedEmail            = normalizeEmail(email);
+    const normalizedWhatsapp         = normalizeWhatsappNumber(whatsappNumber);
 
     if (!organizationId) return res.status(401).json({ error: 'Unauthorized' });
     if (!isUuid(eventId)) return res.status(400).json({ error: 'Invalid event id' });
@@ -81,10 +95,8 @@ router.post('/:eventId', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'A valid name and email are required' });
     }
 
-    // Fetch event settings AND the stored email theme so confirmation
-    // emails use the same theme the organiser chose at publish time.
     const eventCheck = await query(
-      `SELECT e.id, o.settings, e.email_theme_id
+      `SELECT e.id, e.event_date, e.event_time, o.settings, e.email_theme_id
        FROM events e
        JOIN organizations o ON o.id = e.organization_id
        WHERE e.id = $1
@@ -97,28 +109,47 @@ router.post('/:eventId', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    const { settings, email_theme_id } = eventCheck.rows[0];
+    const { settings, email_theme_id, event_date, event_time } = eventCheck.rows[0];
     const themeId = email_theme_id || 'minimal_light';
-
-    const attendeeId = uuidv4();
-    const result = await query(
-      `INSERT INTO attendees (id, event_id, organization_id, name, email)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [attendeeId, eventId, organizationId, normalizedName, normalizedEmail]
+    const remindersResult = await query(
+      'SELECT type, hours_before FROM reminders WHERE event_id = $1 ORDER BY created_at ASC',
+      [eventId]
     );
 
-    if (isEmailTypeEnabled(settings, 'confirmation')) {
-      await query(
-        `INSERT INTO email_queue
-           (id, organization_id, event_id, attendee_id, attendee_email,
-            template_type, email_theme_id, status, send_at)
-         VALUES
-           (uuid_generate_v4(), $1, $2, $3, $4, 'confirmation', $5, 'pending', CURRENT_TIMESTAMP)`,
-        [organizationId, eventId, result.rows[0].id, normalizedEmail, themeId]
+    const attendeeId = uuidv4();
+    const client = await getClient();
+
+    try {
+      await client.query('BEGIN');
+
+      await client.query(
+        `INSERT INTO attendees (id, event_id, organization_id, name, email, whatsapp_number)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [attendeeId, eventId, organizationId, normalizedName, normalizedEmail, normalizedWhatsapp]
       );
+
+      await queueRemindersForAttendee(client, {
+        organizationId,
+        eventId,
+        attendeeId,
+        attendeeEmail: normalizedEmail,
+        whatsappNumber: normalizedWhatsapp,
+        eventDate: event_date,
+        eventTime: event_time,
+        themeId,
+        settings,
+        reminders: remindersResult.rows,
+      });
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
 
-    return res.status(201).json({ success: true, attendeeId: result.rows[0].id });
+    return res.status(201).json({ success: true, attendeeId });
   } catch (error) {
     console.error('Error adding attendee:', error);
     return res.status(500).json({ error: 'Failed to add attendee' });
@@ -140,7 +171,6 @@ router.post('/:eventId/bulk-upload', async (req: Request, res: Response) => {
   }
 
   try {
-    // Fetch event details including the chosen email theme
     const eventRes = await query(
       `SELECT e.event_date, e.event_time, e.email_theme_id, o.settings
        FROM events e
@@ -157,18 +187,19 @@ router.post('/:eventId/bulk-upload', async (req: Request, res: Response) => {
 
     const { event_date, event_time, email_theme_id, settings } = eventRes.rows[0];
     const themeId = email_theme_id || 'minimal_light';
+    const remindersResult = await query(
+      'SELECT type, hours_before FROM reminders WHERE event_id = $1 ORDER BY created_at ASC',
+      [eventId]
+    );
 
-    const eventDateTimeString = `${new Date(event_date).toISOString().split('T')[0]}T${event_time}`;
-    const isEventInFuture     = new Date(eventDateTimeString).getTime() > Date.now();
-    const shouldQueueConfirmation = isEmailTypeEnabled(settings, 'confirmation');
-
-    // Validate and normalise rows from the CSV
+    // Validate and normalise — CSV may include optional whatsapp_number column
     const normalizedAttendees = attendees
       .map((a: any) => ({
-        name:  normalizeName(a?.name),
-        email: normalizeEmail(a?.email),
+        name:            normalizeName(a?.name),
+        email:           normalizeEmail(a?.email),
+        whatsappNumber:  normalizeWhatsappNumber(a?.whatsapp_number ?? a?.whatsappNumber),
       }))
-      .filter((a): a is { name: string; email: string } =>
+      .filter((a): a is { name: string; email: string; whatsappNumber: string | null } =>
         Boolean(a.name && a.email)
       );
 
@@ -176,64 +207,67 @@ router.post('/:eventId/bulk-upload', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'No valid attendees were found in the upload' });
     }
 
-    // Bulk insert attendees (ignore duplicates)
+    // Bulk insert with whatsapp_number
     const attendeeValues = normalizedAttendees
       .map((_, i) => {
-        const o = i * 4;
-        return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4})`;
+        const o = i * 5;
+        return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5})`;
       })
       .join(', ');
 
     const attendeeParams = normalizedAttendees.flatMap((a) => [
-      eventId, organizationId, a.name, a.email,
+      eventId, organizationId, a.name, a.email, a.whatsappNumber,
     ]);
 
-    const newAttendeesRes = await query(
-      `INSERT INTO attendees (event_id, organization_id, name, email)
-       VALUES ${attendeeValues}
-       ON CONFLICT DO NOTHING
-       RETURNING id, email`,
-      attendeeParams
-    );
+    const client = await getClient();
+    let savedAttendees: Array<{ id: string; email: string; whatsapp_number: string | null }> = [];
 
-    const savedAttendees = newAttendeesRes.rows;
+    try {
+      await client.query('BEGIN');
 
-    // Queue confirmation emails with the event's chosen theme
-    if (isEventInFuture && savedAttendees.length > 0 && shouldQueueConfirmation) {
-      const queueValues = savedAttendees
-        .map((_, i) => {
-          const o = i * 5;
-          return `(uuid_generate_v4(), $${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, 'confirmation', $${o + 5}, 'pending', CURRENT_TIMESTAMP)`;
-        })
-        .join(', ');
-
-      const queueParams = savedAttendees.flatMap((a) => [
-        organizationId,
-        eventId,
-        a.id,
-        a.email,
-        themeId,   // ← the event's saved email theme
-      ]);
-
-      await query(
-        `INSERT INTO email_queue
-           (id, organization_id, event_id, attendee_id, attendee_email,
-            template_type, email_theme_id, status, send_at)
-         VALUES ${queueValues}`,
-        queueParams
+      const newAttendeesRes = await client.query(
+        `INSERT INTO attendees (event_id, organization_id, name, email, whatsapp_number)
+         VALUES ${attendeeValues}
+         ON CONFLICT DO NOTHING
+         RETURNING id, email, whatsapp_number`,
+        attendeeParams
       );
 
+      savedAttendees = newAttendeesRes.rows;
+
+      for (const attendee of savedAttendees) {
+        await queueRemindersForAttendee(client, {
+          organizationId,
+          eventId,
+          attendeeId: attendee.id,
+          attendeeEmail: attendee.email,
+          whatsappNumber: attendee.whatsapp_number,
+          eventDate: event_date,
+          eventTime: event_time,
+          themeId,
+          settings,
+          reminders: remindersResult.rows,
+        });
+      }
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    if (savedAttendees.length > 0) {
       return res.status(200).json({
         addedCount: savedAttendees.length,
-        message: `Imported ${savedAttendees.length} attendees and queued confirmation emails.`,
+        message: `Imported ${savedAttendees.length} attendees and queued reminders.`,
       });
     }
 
     return res.status(200).json({
       addedCount: savedAttendees.length,
-      message: shouldQueueConfirmation
-        ? `Imported ${savedAttendees.length} attendees. Emails skipped — event has passed or attendees were duplicates.`
-        : `Imported ${savedAttendees.length} attendees. Confirmation emails are disabled in organisation settings.`,
+      message: `Imported ${savedAttendees.length} attendees.`,
     });
   } catch (error: any) {
     console.error('Import error:', error);

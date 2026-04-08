@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Calendar,
+  BellRing,
   Globe,
   MapPin,
   AlignLeft,
@@ -18,6 +19,20 @@ import {
 import { useRouter } from 'next/navigation';
 
 export type QuestionType = 'text' | 'textarea' | 'checkbox' | 'checkbox_group';
+export type ReminderType = 'confirmation' | '24h' | '1h' | '10m';
+
+const REMINDER_OPTIONS: Array<{
+  value: ReminderType;
+  label: string;
+  description: string;
+}> = [
+  { value: 'confirmation', label: 'Confirmation', description: 'Send immediately after registration' },
+  { value: '24h', label: '24-hour reminder', description: 'Send one day before the event starts' },
+  { value: '1h', label: '1-hour reminder', description: 'Send one hour before the event starts' },
+  { value: '10m', label: '10-minute reminder', description: 'Send a final nudge shortly before go time' },
+];
+
+const DEFAULT_REMINDER_SCHEDULE: ReminderType[] = ['confirmation', '24h', '1h'];
 
 export interface CustomQuestion {
   id: string;
@@ -42,6 +57,7 @@ interface EventPayload {
   eventDate: string;
   eventTime: string;
   timezone: string;
+  reminderSchedule: ReminderType[];
   meetingLink?: string;
   formSchema: ApiFormField[];
 }
@@ -58,6 +74,7 @@ interface InitialEventData {
   location?: string;
   meetingLink?: string;
   meeting_link?: string;
+  reminders?: Array<{ type?: string | null }>;
   questions?: CustomQuestion[];
   formSchema?: ApiFormField[] | string | null;
   form_schema?: ApiFormField[] | string | null;
@@ -70,6 +87,7 @@ interface EventFormState {
   dateTime: string;
   timezone: string;
   meetingLink: string;
+  reminderSchedule: ReminderType[];
   questions: CustomQuestion[];
 }
 
@@ -153,6 +171,22 @@ function mapLegacyQuestions(questions: InitialEventData['questions']): CustomQue
   }));
 }
 
+function parseReminderSchedule(initialData?: InitialEventData | null): ReminderType[] {
+  const reminderTypes = Array.isArray(initialData?.reminders)
+    ? initialData.reminders
+        .map((reminder) => reminder?.type)
+        .filter((type): type is ReminderType => REMINDER_OPTIONS.some((option) => option.value === type))
+    : [];
+
+  if (reminderTypes.length > 0) {
+    return REMINDER_OPTIONS
+      .map((option) => option.value)
+      .filter((value) => reminderTypes.includes(value));
+  }
+
+  return initialData?.id ? [] : DEFAULT_REMINDER_SCHEDULE;
+}
+
 function buildInitialState(initialData?: InitialEventData | null): EventFormState {
   const schema          = parseSchema(initialData?.formSchema ?? initialData?.form_schema);
   const legacyQuestions = mapLegacyQuestions(initialData?.questions);
@@ -170,6 +204,7 @@ function buildInitialState(initialData?: InitialEventData | null): EventFormStat
     dateTime:    eventDate && eventTime ? `${eventDate}T${eventTime}` : legacyDateTime,
     timezone:    initialData?.timezone ?? getBrowserTimezone(),
     meetingLink: initialData?.meetingLink ?? initialData?.meeting_link ?? initialData?.location ?? '',
+    reminderSchedule: parseReminderSchedule(initialData),
     questions:   schema.length > 0 ? mapSchemaToQuestions(schema) : legacyQuestions,
   };
 }
@@ -179,7 +214,13 @@ const inputCls = "w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/30 border borde
 export function EventForm({ initialData, onSubmit, isLoading = false, submitLabel }: EventFormProps) {
   const router = useRouter();
   const [formData, setFormData] = useState<EventFormState>({
-    title: '', description: '', dateTime: '', timezone: 'UTC', meetingLink: '', questions: [],
+    title: '',
+    description: '',
+    dateTime: '',
+    timezone: 'UTC',
+    meetingLink: '',
+    reminderSchedule: DEFAULT_REMINDER_SCHEDULE,
+    questions: [],
   });
 
   useEffect(() => {
@@ -188,6 +229,21 @@ export function EventForm({ initialData, onSubmit, isLoading = false, submitLabe
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  };
+
+  const toggleReminder = (value: ReminderType) => {
+    setFormData((prev) => {
+      const selected = new Set(prev.reminderSchedule);
+      if (selected.has(value)) selected.delete(value);
+      else selected.add(value);
+
+      return {
+        ...prev,
+        reminderSchedule: REMINDER_OPTIONS
+          .map((option) => option.value)
+          .filter((optionValue) => selected.has(optionValue)),
+      };
+    });
   };
 
   const addQuestion = () => {
@@ -263,6 +319,7 @@ export function EventForm({ initialData, onSubmit, isLoading = false, submitLabe
       eventDate,
       eventTime,
       timezone:    formData.timezone,
+      reminderSchedule: formData.reminderSchedule,
       formSchema,
     };
     const meetingLink = formData.meetingLink.trim();
@@ -338,6 +395,50 @@ export function EventForm({ initialData, onSubmit, isLoading = false, submitLabe
         </div>
 
         {/* ── Registration questions ──────────────────────────── */}
+        <div className="pt-8 border-t border-slate-100 dark:border-slate-800/50 space-y-6">
+          <div>
+            <h3 className="text-lg font-medium text-slate-900 dark:text-white flex items-center gap-2 tracking-tight">
+              <div className="p-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-500 dark:text-slate-400">
+                <BellRing size={18} />
+              </div>
+              Reminder Schedule
+            </h3>
+            <p className="text-sm text-slate-500 font-normal mt-1 ml-1">
+              Choose which automated emails attendees should receive for this event.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {REMINDER_OPTIONS.map((option) => {
+              const checked = formData.reminderSchedule.includes(option.value);
+
+              return (
+                <label
+                  key={option.value}
+                  className={`flex items-start gap-3 rounded-[18px] border p-4 transition-all cursor-pointer ${
+                    checked
+                      ? 'border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-900 shadow-sm'
+                      : 'border-slate-200/80 bg-white text-slate-900 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:hover:border-slate-700'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleReminder(option.value)}
+                    className="mt-1 h-4 w-4 rounded border-slate-300 accent-slate-900 dark:accent-slate-900"
+                  />
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">{option.label}</p>
+                    <p className={`text-xs ${checked ? 'text-slate-200 dark:text-slate-700' : 'text-slate-500 dark:text-slate-400'}`}>
+                      {option.description}
+                    </p>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="pt-8 border-t border-slate-100 dark:border-slate-800/50 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>

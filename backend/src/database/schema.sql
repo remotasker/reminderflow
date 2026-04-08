@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS reminders (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   type VARCHAR(50) NOT NULL,
-  hours_before INT,
+  hours_before NUMERIC(6,3),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(event_id, type)
 );
@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS attendees (
   event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) NOT NULL,
+  whatsapp_number VARCHAR(20),
   responses JSONB,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -110,6 +111,7 @@ CREATE TABLE IF NOT EXISTS email_queue (
   attendee_email VARCHAR(255) NOT NULL,
   template_type VARCHAR(50) NOT NULL,
   email_theme_id VARCHAR(50) DEFAULT 'minimal_light',
+  whatsapp_number VARCHAR(20),
   send_at TIMESTAMP NOT NULL,
   status VARCHAR(50) NOT NULL DEFAULT 'pending',
   attempt_count INT DEFAULT 0,
@@ -142,6 +144,20 @@ CREATE TABLE IF NOT EXISTS email_click_logs (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- WhatsApp logs table
+CREATE TABLE IF NOT EXISTS whatsapp_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  attendee_id UUID NOT NULL REFERENCES attendees(id) ON DELETE CASCADE,
+  queue_id UUID REFERENCES email_queue(id) ON DELETE SET NULL,
+  recipient_number VARCHAR(20) NOT NULL,
+  template_type VARCHAR(50) NOT NULL,
+  message_sid VARCHAR(255),
+  status VARCHAR(50) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Support tickets table
 CREATE TABLE IF NOT EXISTS support_tickets (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -163,5 +179,6 @@ CREATE INDEX IF NOT EXISTS idx_email_queue_organization_id ON email_queue(organi
 CREATE INDEX IF NOT EXISTS idx_email_queue_status_send_at ON email_queue(status, send_at);
 CREATE INDEX IF NOT EXISTS idx_email_logs_organization_id ON email_logs(organization_id);
 CREATE INDEX IF NOT EXISTS idx_email_logs_tracking_id ON email_logs(tracking_id);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_logs_organization_id ON whatsapp_logs(organization_id);
 CREATE INDEX IF NOT EXISTS idx_support_tickets_organization_id ON support_tickets(organization_id);
 CREATE INDEX IF NOT EXISTS idx_support_tickets_created_at ON support_tickets(created_at);

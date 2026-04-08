@@ -30,15 +30,30 @@ const HARDCODED_ORIGINS = [
   'https://reminderflow-frontend.vercel.app',
   'https://reminderflow-frontend-qct7.vercel.app',
   'http://localhost:3000',
+  'http://localhost:3001/api',
   'http://127.0.0.1:3000',
 ];
+
+function expandOriginCandidate(value: string | undefined): string[] {
+  if (!value) return [];
+
+  const candidates = new Set<string>([value]);
+
+  try {
+    candidates.add(new URL(value).origin);
+  } catch {
+    // Ignore invalid URLs and keep the raw value for exact matching.
+  }
+
+  return [...candidates];
+}
 
 function getAllowedOrigins(): Set<string> {
   return new Set([
     ...HARDCODED_ORIGINS,
-    process.env.FRONTEND_URL,
-    process.env.NEXT_PUBLIC_APP_URL,
-  ].filter(Boolean) as string[]);
+    ...expandOriginCandidate(process.env.FRONTEND_URL),
+    ...expandOriginCandidate(process.env.NEXT_PUBLIC_API_URL),
+  ]);
 }
 
 function corsOriginHandler(

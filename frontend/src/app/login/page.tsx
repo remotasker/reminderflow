@@ -108,6 +108,17 @@ function LoginInner() {
                     Create one here
                   </Link>
                 </p>
+                <p className="mt-4 text-xs leading-6 text-slate-400 dark:text-slate-500">
+                  By continuing, you agree to our{' '}
+                  <Link href="/terms" className="font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">
+                    Terms of Service
+                  </Link>
+                  {' '}and{' '}
+                  <Link href="/privacy" className="font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">
+                    Privacy Policy
+                  </Link>
+                  .
+                </p>
               </div>
 
             </div>

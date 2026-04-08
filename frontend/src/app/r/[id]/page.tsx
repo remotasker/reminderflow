@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 import {
   Calendar, Clock, ShieldCheck,
   CheckCircle2, Loader2, MonitorSmartphone,
-  MapPin, Sparkles
+  MapPin, Sparkles, MessageCircle
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -31,7 +31,6 @@ interface PublicEvent {
   form_schema: FormField[] | null;
 }
 
-// Custom Premium ReminderFlow Input Styling (with mobile zoom fix)
 const inputCls = "w-full px-5 py-3.5 bg-slate-50 dark:bg-slate-800/30 border border-slate-200/80 dark:border-slate-700/50 rounded-[16px] text-base md:text-sm font-normal text-slate-900 dark:text-white outline-none focus:bg-white dark:focus:bg-slate-800/80 focus:border-slate-400 dark:focus:border-slate-500 transition-all placeholder:text-slate-400";
 
 export default function PublicRegistrationPage() {
@@ -47,6 +46,11 @@ export default function PublicRegistrationPage() {
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  
+  // NEW: WhatsApp State
+  const [wantsWhatsapp, setWantsWhatsapp] = useState(false);
+  const [whatsappNumber, setWhatsappNumber] = useState('');
+  
   const [customAnswers, setCustomAnswers] = useState<Record<string, any>>({});
 
   useEffect(() => {
@@ -116,10 +120,21 @@ export default function PublicRegistrationPage() {
       }
     }
 
+    if (wantsWhatsapp && !whatsappNumber) {
+      toast.error('Please provide your WhatsApp number.');
+      return;
+    }
+
     setSubmitting(true);
 
     try {
-      const payload = { name, email, custom_responses: customAnswers };
+      // CHANGED: Added whatsappNumber conditionally
+      const payload = { 
+        name, 
+        email, 
+        custom_responses: customAnswers,
+        whatsappNumber: wantsWhatsapp ? whatsappNumber : null
+      };
 
       const res = await fetch(`${API_URL}/api/public/events/${eventId}/register`, {
         method: 'POST',
@@ -146,7 +161,6 @@ export default function PublicRegistrationPage() {
     customFields = event.form_schema.filter(f => !f.locked);
   }
 
-  // --- LOADING & ERROR STATES ---
   if (loading) return <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center"><Loader2 className="animate-spin text-slate-400 dark:text-slate-600" size={32} /></div>;
   
   if (pageError && !event) return (
@@ -162,17 +176,14 @@ export default function PublicRegistrationPage() {
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-slate-50 dark:bg-slate-950 font-sans">
       
-      {/* --- LEFT COLUMN: Premium Monochromatic Event Details --- */}
       <div className="lg:w-5/12 xl:w-1/3 bg-slate-950 text-white p-8 lg:p-12 lg:fixed lg:inset-y-0 lg:left-0 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-slate-800 relative overflow-hidden">
         
-        {/* Subtle Background Glows */}
         <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
           <div className="absolute -top-20 -right-20 w-64 h-64 bg-slate-800/40 rounded-full blur-3xl"></div>
           <div className="absolute -bottom-20 -left-20 w-80 h-80 bg-slate-800/30 rounded-full blur-3xl"></div>
         </div>
 
         <div className="relative z-10">
-          {/* Brand */}
           <div className="flex items-center gap-2.5 mb-10 lg:mb-12">
             <div className="bg-white/5 backdrop-blur-md p-2 rounded-lg border border-white/10 shadow-sm flex items-center justify-center">
               <Sparkles size={16} className="text-slate-300" />
@@ -180,7 +191,6 @@ export default function PublicRegistrationPage() {
             <span className="font-medium tracking-tight text-sm text-slate-300">ReminderFlow</span>
           </div>
 
-          {/* Event Context */}
           <div className="space-y-6 animate-in fade-in slide-in-from-left-4 duration-700">
             <div className="inline-flex px-3 py-1 rounded-full bg-slate-800/50 border border-slate-700/50 text-slate-300 text-[10px] font-medium uppercase tracking-widest">
               Registration Open
@@ -245,8 +255,6 @@ export default function PublicRegistrationPage() {
         </div>
       </div>
 
-      {/* --- RIGHT COLUMN: The Form --- */}
-      {/* ADDED flex-col and w-full here to fix the side-by-side bug */}
       <div className="flex-1 w-full lg:ml-[41.666667%] xl:ml-[33.333333%] flex flex-col items-center justify-center p-4 sm:p-8 lg:p-12 relative">
         
         <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-[24px] shadow-sm border border-slate-200/80 dark:border-slate-800 p-6 sm:p-10 animate-in fade-in slide-in-from-bottom-8 duration-700">
@@ -273,7 +281,6 @@ export default function PublicRegistrationPage() {
                 <p className="text-sm text-slate-500 font-normal">Please provide your details below to secure your spot.</p>
               </div>
 
-              {/* Standard Fields */}
               <div className="space-y-2">
                 <label className="text-xs font-medium text-slate-500 uppercase tracking-widest ml-1">Full Name <span className="text-slate-400">*</span></label>
                 <input type="text" required placeholder="Jane Doe" className={inputCls} value={name} onChange={e => setName(e.target.value)} />
@@ -284,7 +291,40 @@ export default function PublicRegistrationPage() {
                 <input type="email" required placeholder="jane@example.com" className={inputCls} value={email} onChange={e => setEmail(e.target.value)} />
               </div>
 
-              {/* Custom Fields */}
+              {/* NEW: WhatsApp Opt-in UI */}
+              <div className="pt-2">
+                <label className={`flex items-center justify-between cursor-pointer p-4 bg-slate-50 dark:bg-slate-800/30 border rounded-[16px] transition-all ${wantsWhatsapp ? 'border-emerald-500/50 bg-emerald-50/50 dark:bg-emerald-950/20' : 'border-slate-200/80 dark:border-slate-700/50 hover:border-slate-400 dark:hover:border-slate-500'}`}>
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="checkbox"
+                      className="w-5 h-5 accent-emerald-600 rounded cursor-pointer shrink-0"
+                      checked={wantsWhatsapp}
+                      onChange={e => setWantsWhatsapp(e.target.checked)}
+                    />
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-slate-900 dark:text-slate-200 flex items-center gap-2">
+                        <MessageCircle size={16} className="text-emerald-500" /> Get reminders via WhatsApp
+                      </span>
+                    </div>
+                  </div>
+                </label>
+
+                {wantsWhatsapp && (
+                  <div className="mt-4 space-y-2 animate-in slide-in-from-top-2 fade-in duration-300">
+                    <label className="text-xs font-medium text-slate-500 uppercase tracking-widest ml-1">WhatsApp Number <span className="text-slate-400">*</span></label>
+                    <input 
+                      type="tel" 
+                      required={wantsWhatsapp} 
+                      placeholder="+1234567890" 
+                      className={inputCls} 
+                      value={whatsappNumber} 
+                      onChange={e => setWhatsappNumber(e.target.value)} 
+                    />
+                    <p className="text-[11px] text-slate-400 ml-1">Please include your country code (e.g., +254)</p>
+                  </div>
+                )}
+              </div>
+
               {customFields.length > 0 && (
                 <div className="pt-6 mt-6 border-t border-slate-100 dark:border-slate-800/50 space-y-6">
                   {customFields.map(field => (
@@ -344,7 +384,6 @@ export default function PublicRegistrationPage() {
                 </div>
               )}
 
-              {/* Privacy Consent Snippet */}
               <div className="pt-6 mt-6 border-t border-slate-100 dark:border-slate-800/50">
                 <p className="text-center text-xs text-slate-500 dark:text-slate-400 mb-4 px-2">
                   By registering, you agree to our{' '}
@@ -361,7 +400,6 @@ export default function PublicRegistrationPage() {
           )}
         </div>
         
-        {/* Mobile Footer */}
         <div className="lg:hidden w-full text-center pt-8 pb-4">
           <p className="text-[11px] font-medium uppercase tracking-widest text-slate-500 flex items-center justify-center gap-1.5">
             <ShieldCheck size={14} /> Powered by ReminderFlow

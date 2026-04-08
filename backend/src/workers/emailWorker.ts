@@ -2,21 +2,26 @@
 import * as dotenv from 'dotenv';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../database/db';
+import { toDateOnlyString } from '../services/reminders';
 import { sendEmailFromQueue } from '../services/sendgrid';
+import { sendWhatsAppReminder, resolveTemplateSid } from '../services/twilio';
 import { getThemeHtml } from '../services/emailThemes';
-import { getIntegrationSettings, getOrganizationProfileSettings } from '../utils/settings';
+import {
+  getIntegrationSettings,
+  getOrganizationProfileSettings,
+  isWhatsAppTypeEnabled,
+} from '../utils/settings';
 
 dotenv.config();
 
 const BATCH_SIZE   = 50;
-const INTERVAL_MS  = 60 * 1000; // every 60 seconds
+const INTERVAL_MS  = 60 * 1000;
 const MAX_ATTEMPTS = 3;
 
 let isProcessing = false;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-/** "2026-04-17" → "Wednesday, April 17, 2026" */
 function formatDisplayDate(isoDate: string): string {
   try {
     return new Date(`${isoDate}T00:00:00`).toLocaleDateString('en-US', {
@@ -27,7 +32,6 @@ function formatDisplayDate(isoDate: string): string {
   }
 }
 
-/** "14:30:00" → "2:30 PM" */
 function formatDisplayTime(rawTime: string): string {
   try {
     const [h, m] = rawTime.split(':').map(Number);
@@ -38,7 +42,6 @@ function formatDisplayTime(rawTime: string): string {
   }
 }
 
-/** Strip the seconds part from a DB time value: "14:30:00" → "14:30" */
 function toRawTime(dbTime: string): string {
   return (dbTime || '').slice(0, 5);
 }
@@ -54,16 +57,15 @@ async function processEmailQueue(): Promise<void> {
   isProcessing = true;
 
   try {
-    // Fetch pending AND failed-but-retryable rows together.
-    // status IN ('pending','failed') + attempt_count < MAX_ATTEMPTS
-    // ensures we pick up retries without a separate job.
     const result = await query(
       `SELECT
          eq.id,
          eq.attendee_email,
          eq.template_type,
          eq.email_theme_id,
+         eq.whatsapp_number,
          a.name              AS attendee_name,
+         a.whatsapp_number   AS attendee_whatsapp,
          e.title             AS event_title,
          e.event_date,
          e.event_time,
@@ -99,143 +101,157 @@ async function processEmailQueue(): Promise<void> {
       return;
     }
 
-    console.log(`[${new Date().toISOString()}] Processing ${result.rows.length} email(s)…`);
+    console.log(`[${new Date().toISOString()}] Processing ${result.rows.length} item(s)…`);
 
     let sent   = 0;
     let failed = 0;
 
     for (const row of result.rows) {
       try {
-        // ── 1. Resolve theme ID ──────────────────────────────────────────
-        // Priority: per-queue theme > org template theme > default
-        const themeId = row.email_theme_id || row.saved_theme_id || 'minimal_light';
-
-        // ── 2. Resolve org settings early (needed for organizerName) ────
+        // ── 1. Resolve settings ──────────────────────────────────────────
         const integrationSettings = getIntegrationSettings(row.settings);
         const profileSettings     = getOrganizationProfileSettings(row.settings);
-
-        // ── 3. Build email data ──────────────────────────────────────────
-        // event_date arrives as a JS Date object from pg — use toISOString()
-        // so slice(0,10) reliably yields "YYYY-MM-DD" not "Wed Apr 02…"
-        const rawDate = row.event_date instanceof Date
-          ? row.event_date.toISOString().split('T')[0]
-          : String(row.event_date).split('T')[0];
-        const rawTime = toRawTime(String(row.event_time)); // "14:30"
-
-        // Use the organiser's display name from Settings (fromName) when set,
-        // falling back to the raw organisation name stored in the DB.
+        const themeId = row.email_theme_id || row.saved_theme_id || 'minimal_light';
         const displayName = profileSettings.fromName || row.organizer_name;
+
+        // ── 2. Build shared event data ───────────────────────────────────
+        const rawDate = toDateOnlyString(row.event_date);
+        const rawTime = toRawTime(String(row.event_time));
 
         const emailData = {
           attendeeName:   row.attendee_name,
           eventTitle:     row.event_title,
           eventDate:      formatDisplayDate(rawDate),
           eventTime:      formatDisplayTime(rawTime),
-          // Raw ISO values for calendar link generation
           rawDate,
           rawTime,
           location:       row.meeting_link || 'Location TBD',
           joinLink:       row.meeting_link || '#',
           customMessage:  row.saved_custom_message || '',
-          brandPrimary:   row.primary_color  || '#2563eb',
+          brandPrimary:   row.primary_color   || '#2563eb',
           brandSecondary: row.secondary_color || '#0ea5e9',
           organizerName:  displayName,
-          // Pass email type so each reminder gets unique copy + urgency bar
           emailType:      row.template_type,
         };
 
-        // ── 3. Generate HTML ─────────────────────────────────────────────
-        const finalHtml = getThemeHtml(themeId, emailData);
-
-        // ── 4. Build subject line ────────────────────────────────────────
-        const rawSubject  = row.saved_subject || 'Reminder: {{event_title}}';
+        // ── 3. Send email ────────────────────────────────────────────────
+        const finalHtml    = getThemeHtml(themeId, emailData);
+        const rawSubject   = row.saved_subject || 'Reminder: {{event_title}}';
         const finalSubject = rawSubject
           .replace(/\{\{event_title\}\}/g,   row.event_title)
           .replace(/\{\{attendee_name\}\}/g, row.attendee_name);
 
-        // ── 5. SendGrid credentials already resolved in step 2 above ────
-
-        // ── 6. Send ──────────────────────────────────────────────────────
-        const outcome = await sendEmailFromQueue(
+        const emailOutcome = await sendEmailFromQueue(
           row.id,
           row.attendee_email,
           finalSubject,
           finalHtml,
           {
-            apiKey:     integrationSettings.sendgridApiKey,
-            fromEmail:  integrationSettings.sendgridFromEmail,
-            fromName:   integrationSettings.sendgridFromName
-                          || profileSettings.fromName
-                          || row.organizer_name,
-            replyTo:    profileSettings.replyToEmail,
+            apiKey:    integrationSettings.sendgridApiKey,
+            fromEmail: integrationSettings.sendgridFromEmail,
+            fromName:  integrationSettings.sendgridFromName
+                         || profileSettings.fromName
+                         || row.organizer_name,
+            replyTo:   profileSettings.replyToEmail,
           }
         );
 
-        if (outcome.success) {
-          // ── 7a. Mark queue item as sent ──────────────────────────────
+        if (emailOutcome.success) {
           await query(
-            `UPDATE email_queue
-             SET status = 'sent', updated_at = CURRENT_TIMESTAMP
-             WHERE id = $1`,
+            `UPDATE email_queue SET status = 'sent', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
             [row.id]
           );
 
-          // ── 7b. Write to email_logs so delivery log page shows it ────
           const trackingId = uuidv4();
           await query(
             `INSERT INTO email_logs
                (id, organization_id, event_id, attendee_id, queue_id,
                 recipient_email, template_type, sent_at, tracking_id)
-             VALUES
-               ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, $8)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, $8)
              ON CONFLICT (tracking_id) DO NOTHING`,
             [
-              uuidv4(),
-              row.organization_id,
-              row.event_id,
-              row.attendee_id,
-              row.id,
-              row.attendee_email,
-              row.template_type,
-              trackingId,
+              uuidv4(), row.organization_id, row.event_id, row.attendee_id,
+              row.id, row.attendee_email, row.template_type, trackingId,
             ]
           );
 
-          console.log(`  ✓ Sent ${row.template_type} to ${row.attendee_email}`);
+          console.log(`  ✓ Email ${row.template_type} → ${row.attendee_email}`);
           sent++;
         } else {
-          // ── 7c. Increment attempt count; mark 'failed' if exhausted ──
-          const newCount = (row.attempt_count ?? 0) + 1;
+          const newCount  = (row.attempt_count ?? 0) + 1;
           const newStatus = newCount >= MAX_ATTEMPTS ? 'failed' : 'pending';
-
           await query(
             `UPDATE email_queue
-             SET status        = $1,
-                 attempt_count = $2,
-                 last_error    = $3,
-                 updated_at    = CURRENT_TIMESTAMP
+             SET status = $1, attempt_count = $2, last_error = $3, updated_at = CURRENT_TIMESTAMP
              WHERE id = $4`,
-            [newStatus, newCount, outcome.error, row.id]
+            [newStatus, newCount, emailOutcome.error, row.id]
           );
-
-          console.error(`  ✗ Failed (attempt ${newCount}/${MAX_ATTEMPTS}) to ${row.attendee_email}: ${outcome.error}`);
+          console.error(`  ✗ Email failed (${newCount}/${MAX_ATTEMPTS}) → ${row.attendee_email}: ${emailOutcome.error}`);
           failed++;
         }
+
+        // ── 4. Send WhatsApp (fire-and-forget alongside email) ───────────
+        // WhatsApp is sent independently — an email failure does NOT block
+        // WhatsApp, and a WhatsApp failure does NOT affect the email queue
+        // status. Each channel is best-effort and logged separately.
+        const whatsappNumber = row.whatsapp_number || row.attendee_whatsapp;
+        const whatsappEnabled = isWhatsAppTypeEnabled(row.settings, row.template_type);
+
+        if (
+          whatsappNumber &&
+          whatsappEnabled &&
+          integrationSettings.twilioAccountSid &&
+          integrationSettings.twilioAuthToken &&
+          integrationSettings.twilioWhatsappFrom
+        ) {
+          const contentSid = resolveTemplateSid(row.template_type, integrationSettings);
+
+          const waResult = await sendWhatsAppReminder(
+            whatsappNumber,
+            {
+              attendeeName: row.attendee_name,
+              eventTitle:   row.event_title,
+              eventDate:    emailData.eventDate,
+              eventTime:    emailData.eventTime,
+              meetingLink:  row.meeting_link || '',
+              emailType:    row.template_type,
+            },
+            {
+              accountSid:  integrationSettings.twilioAccountSid,
+              authToken:   integrationSettings.twilioAuthToken,
+              fromNumber:  integrationSettings.twilioWhatsappFrom,
+              contentSid,
+            }
+          );
+
+          if (waResult.success) {
+            // Log WhatsApp delivery separately
+            await query(
+              `INSERT INTO whatsapp_logs
+                 (id, organization_id, event_id, attendee_id, queue_id,
+                  recipient_number, template_type, message_sid, status)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'sent')
+               ON CONFLICT DO NOTHING`,
+              [
+                uuidv4(), row.organization_id, row.event_id, row.attendee_id,
+                row.id, whatsappNumber, row.template_type, waResult.messageSid,
+              ]
+            ).catch((err) =>
+              console.error('  ✗ Failed to write whatsapp_log:', err.message)
+            );
+          }
+          // WhatsApp errors are already logged inside sendWhatsAppReminder
+        }
+
       } catch (err: any) {
-        // Unexpected runtime error — still increment so we don't loop forever
         const newCount  = (row.attempt_count ?? 0) + 1;
         const newStatus = newCount >= MAX_ATTEMPTS ? 'failed' : 'pending';
-
         await query(
           `UPDATE email_queue
-           SET status        = $1,
-               attempt_count = $2,
-               last_error    = $3,
-               updated_at    = CURRENT_TIMESTAMP
+           SET status = $1, attempt_count = $2, last_error = $3, updated_at = CURRENT_TIMESTAMP
            WHERE id = $4`,
           [newStatus, newCount, err.message ?? 'Unknown error', row.id]
         ).catch(() => {});
-
         console.error(`  ✗ Critical error on queue item ${row.id}:`, err);
         failed++;
       }
@@ -253,7 +269,7 @@ async function processEmailQueue(): Promise<void> {
 // ── Entry points ──────────────────────────────────────────────────────────
 
 export async function startWorker(): Promise<void> {
-  console.log('[Worker] ReminderFlow email worker started');
+  console.log('[Worker] ReminderFlow worker started (email + WhatsApp)');
   await processEmailQueue();
   setInterval(processEmailQueue, INTERVAL_MS);
 }

@@ -524,10 +524,20 @@ export default function LandingPage() {
           </div>
 
           <div className="flex flex-wrap justify-center gap-8 text-sm font-medium text-slate-500">
-            {['Features', 'Pricing', 'Privacy', 'Terms', 'Contact'].map(item => (
-              <Link key={item} href="#" className="hover:text-slate-900 dark:hover:text-white transition-colors">
-                {item}
-              </Link>
+            {[
+              { label: 'Features', href: '#features' },
+              { label: 'Pricing', href: '/signup' },
+              { label: 'Privacy', href: '/privacy' },
+              { label: 'Terms', href: '/terms' },
+              { label: 'Contact', href: 'mailto:support@reminderflow.app' },
+            ].map((item) => (
+              <a
+                key={item.label}
+                href={item.href}
+                className="hover:text-slate-900 dark:hover:text-white transition-colors"
+              >
+                {item.label}
+              </a>
             ))}
           </div>
           <p className="text-[11px] font-medium uppercase tracking-widest text-slate-400">© 2026 ReminderFlow.</p>
