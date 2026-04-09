@@ -13,6 +13,10 @@ import orgRoutes       from './routes/org';
 import publicRoutes    from './routes/public';
 import settingsRoutes  from './routes/settings';
 import supportRoutes   from './routes/support';
+import billingRoutes   from './routes/billing';
+import videoRoutes     from './routes/video';
+import { query }       from './database/db';
+import { isUuid }      from './utils/validation';
 import authMiddleware  from './middleware/auth';
 import { requireAdmin } from './middleware/rbac';
 import { startWorker } from './workers/emailWorker';
@@ -100,7 +104,7 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  // Note: camera/microphone NOT blocked here so Daily.co video rooms work.
   if (req.secure || process.env.NODE_ENV === 'production') {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
@@ -108,6 +112,9 @@ app.use((req, res, next) => {
 });
 
 // ── Body parsing + cookies ────────────────────────────────────────────────────
+
+// Stripe webhook needs raw body for signature verification — mount BEFORE express.json()
+app.post('/api/billing/webhook', express.raw({ type: 'application/json' }));
 
 app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: false, limit: '50kb' }));
@@ -121,9 +128,41 @@ app.get('/api/health', (_req, res) => {
 
 // ── Public routes ─────────────────────────────────────────────────────────────
 
-app.use('/api/auth',   authRoutes);
-app.use('/api/email',  emailRoutes);
-app.use('/api/public', publicRoutes);
+app.use('/api/auth',    authRoutes);
+app.use('/api/email',   emailRoutes);
+app.use('/api/public',  publicRoutes);
+app.use('/api/billing', billingRoutes);
+
+// Public video-token endpoint — attendees join without auth
+app.post('/api/video/public-token', async (req, res) => {
+  const DAILY_API_KEY = process.env.DAILY_API_KEY;
+  if (!DAILY_API_KEY) {
+    return res.status(503).json({ error: 'Video not configured' });
+  }
+  const { eventId, displayName } = req.body ?? {};
+  if (!eventId || !isUuid(eventId)) {
+    return res.status(400).json({ error: 'eventId is required' });
+  }
+  try {
+    const result = await query('SELECT daily_room_name FROM events WHERE id = $1', [eventId]);
+    if (!result.rows[0]?.daily_room_name) {
+      return res.status(404).json({ error: 'No video room found' });
+    }
+    const roomName: string = result.rows[0].daily_room_name;
+    const exp = Math.floor(Date.now() / 1000) + 4 * 60 * 60;
+    const tokenRes = await fetch('https://api.daily.co/v1/meeting-tokens', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${DAILY_API_KEY}` },
+      body: JSON.stringify({ properties: { room_name: roomName, is_owner: false, exp, user_name: displayName || 'Attendee' } }),
+    });
+    if (!tokenRes.ok) return res.status(502).json({ error: 'Failed to generate token' });
+    const { token } = await tokenRes.json() as { token: string };
+    return res.json({ token, roomName });
+  } catch (err) {
+    console.error('[public-token] error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // ── Protected routes ──────────────────────────────────────────────────────────
 
@@ -132,6 +171,7 @@ app.use('/api/attendees', authMiddleware, attendeeRoutes);
 app.use('/api/analytics', authMiddleware, analyticsRoutes);
 app.use('/api/settings',  authMiddleware, settingsRoutes);
 app.use('/api/support',   authMiddleware, supportRoutes);
+app.use('/api/video',     authMiddleware, videoRoutes);
 
 // ── Admin-only routes ─────────────────────────────────────────────────────────
 

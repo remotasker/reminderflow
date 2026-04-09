@@ -7,8 +7,11 @@ import toast from 'react-hot-toast';
 import { useAuthUser } from '@/hooks/useAuthUser';
 import { 
   Save, Mail, Palette, RefreshCcw, ChevronRight, 
-  LayoutTemplate, AlignLeft, Eye, X, Loader2, AlertTriangle
+  LayoutTemplate, AlignLeft, Eye, X, Loader2, AlertTriangle,
+  Lock, Zap
 } from 'lucide-react';
+import { usePlan } from '@/hooks/usePlan';
+import Link from 'next/link';
 
 const TEMPLATE_TYPES = [
   { id: 'confirmation', label: 'Confirmation' },
@@ -27,6 +30,7 @@ const inputCls = "w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/30 border borde
 
 export default function TemplatesPage() {
   const { user, loading: userLoading } = useAuthUser();
+  const { isPro } = usePlan();
   const [activeType, setActiveType] = useState('confirmation');
   const [templates, setTemplates] = useState<any[]>([]);
   const [branding, setBranding] = useState({ primary_color: '#2563eb', secondary_color: '#0ea5e9' });
@@ -222,7 +226,29 @@ export default function TemplatesPage() {
           </div>
 
           {/* --- RIGHT AREA --- */}
-          <div className="lg:col-span-9 space-y-6">
+          <div className="lg:col-span-9 space-y-6 relative">
+
+            {/* Pro lock overlay over the whole right column */}
+            {!isPro && (
+              <div className="absolute inset-0 z-20 rounded-[24px] bg-white/70 dark:bg-slate-900/70 backdrop-blur-[3px] flex flex-col items-center justify-center gap-4 min-h-[320px]">
+                <div className="flex flex-col items-center gap-3 text-center px-6">
+                  <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
+                    <Lock size={22} className="text-slate-400" />
+                  </div>
+                  <div>
+                    <p className="text-base font-semibold text-slate-900 dark:text-white mb-1">Custom Templates — Pro Feature</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 max-w-xs">Editing themes, custom messages, and brand colors is available on the Pro plan. Free users use the default Minimal Light template.</p>
+                  </div>
+                  <Link
+                    href="/subscription"
+                    className="mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-all"
+                  >
+                    <Zap size={14} /> Upgrade to Pro — KSh 1,500/mo
+                  </Link>
+                  <p className="text-xs text-slate-400">14-day free trial included</p>
+                </div>
+              </div>
+            )}
             
             {/* Subject & Message Card */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-[20px] shadow-sm p-6 sm:p-8 space-y-6">
@@ -290,6 +316,45 @@ export default function TemplatesPage() {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* ── Pro locked: Custom Email Sender ───────────── */}
+            <div className={`rounded-[20px] border p-6 shadow-sm relative overflow-hidden ${
+              isPro
+                ? 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800'
+                : 'bg-slate-50 dark:bg-slate-900/50 border-dashed border-slate-200 dark:border-slate-700/50'
+            }`}>
+              {!isPro && (
+                <div className="absolute inset-0 bg-white/60 dark:bg-slate-900/60 backdrop-blur-[1px] rounded-[20px] z-10 flex flex-col items-center justify-center gap-3">
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
+                      <Lock size={18} className="text-slate-400" />
+                    </div>
+                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Custom Email Sender — Pro Feature</p>
+                    <p className="text-xs text-slate-500 text-center max-w-[220px]">Send emails from your own domain address instead of the default ReminderFlow sender.</p>
+                    <Link
+                      href="/subscription"
+                      className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-all"
+                    >
+                      <Zap size={12} /> Upgrade to Pro
+                    </Link>
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center gap-2 mb-4 font-medium text-xs uppercase tracking-widest text-slate-500">
+                <Mail size={16} /> Custom Email Sender
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-medium text-slate-500 uppercase tracking-widest mb-2 block ml-1">Sender Name</label>
+                  <input disabled type="text" placeholder="e.g. Acme Events" className={`${inputCls} opacity-50 cursor-not-allowed`} />
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-slate-500 uppercase tracking-widest mb-2 block ml-1">Sender Email Address</label>
+                  <input disabled type="email" placeholder="e.g. noreply@yourdomain.com" className={`${inputCls} opacity-50 cursor-not-allowed`} />
+                  <p className="mt-1.5 text-xs text-slate-400 ml-1">Requires domain verification. Available with Pro plan.</p>
+                </div>
               </div>
             </div>
             

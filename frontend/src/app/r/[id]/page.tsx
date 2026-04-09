@@ -29,6 +29,7 @@ interface PublicEvent {
   timezone: string;
   meeting_link?: string;
   form_schema: FormField[] | null;
+  whatsapp_enabled: boolean;
 }
 
 const inputCls = "w-full px-5 py-3.5 bg-slate-50 dark:bg-slate-800/30 border border-slate-200/80 dark:border-slate-700/50 rounded-[16px] text-base md:text-sm font-normal text-slate-900 dark:text-white outline-none focus:bg-white dark:focus:bg-slate-800/80 focus:border-slate-400 dark:focus:border-slate-500 transition-all placeholder:text-slate-400";
@@ -291,7 +292,8 @@ export default function PublicRegistrationPage() {
                 <input type="email" required placeholder="jane@example.com" className={inputCls} value={email} onChange={e => setEmail(e.target.value)} />
               </div>
 
-              {/* NEW: WhatsApp Opt-in UI */}
+              {/* WhatsApp Opt-in — Pro orgs only */}
+              {event?.whatsapp_enabled && (
               <div className="pt-2">
                 <label className={`flex items-center justify-between cursor-pointer p-4 bg-slate-50 dark:bg-slate-800/30 border rounded-[16px] transition-all ${wantsWhatsapp ? 'border-emerald-500/50 bg-emerald-50/50 dark:bg-emerald-950/20' : 'border-slate-200/80 dark:border-slate-700/50 hover:border-slate-400 dark:hover:border-slate-500'}`}>
                   <div className="flex items-center gap-3">
@@ -324,6 +326,7 @@ export default function PublicRegistrationPage() {
                   </div>
                 )}
               </div>
+              )}
 
               {customFields.length > 0 && (
                 <div className="pt-6 mt-6 border-t border-slate-100 dark:border-slate-800/50 space-y-6">

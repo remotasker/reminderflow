@@ -7,7 +7,7 @@ import { EventEditorHeader } from '@/components/EventEditorHeader';
 import api from '@/lib/api';
 import { useRouter, useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { FilePenLine, Loader2 } from 'lucide-react';
+import { FilePenLine, Loader2, Video, Link2, ExternalLink } from 'lucide-react';
 
 export default function EditEventPage() {
   const router = useRouter();
@@ -39,12 +39,20 @@ export default function EditEventPage() {
     try {
       await api.put(`/api/events/${eventId}`, data);
       toast.success('Event updated successfully!');
+      // Re-fetch to get updated daily_room_url if a room was just created
+      const res = await api.get(`/api/events/${eventId}`);
+      setEventData(res.data);
       router.push('/events');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to update event');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const copyJoinLink = () => {
+    const url = `${window.location.origin}/join/${eventId}`;
+    navigator.clipboard.writeText(url).then(() => toast.success('Join link copied!')).catch(() => toast.error('Failed to copy link'));
   };
 
   if (isLoading) {
@@ -83,7 +91,36 @@ export default function EditEventPage() {
           onBack={() => router.push('/events')}
         />
 
-        <div className="max-w-4xl mx-auto animate-in slide-in-from-bottom-4 duration-500">
+        <div className="max-w-4xl mx-auto animate-in slide-in-from-bottom-4 duration-500 space-y-6">
+          {/* Daily Room Banner */}
+          {eventData?.daily_room_url && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-[20px] border border-violet-200 bg-violet-50 dark:border-violet-800/50 dark:bg-violet-900/20 px-5 py-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-violet-100 dark:bg-violet-900/40 text-violet-600 dark:text-violet-400">
+                  <Video size={18} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-violet-900 dark:text-violet-200">Video Room Active</p>
+                  <p className="text-xs text-violet-600 dark:text-violet-400 mt-0.5 truncate max-w-xs">{eventData.daily_room_url}</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={copyJoinLink}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-violet-700 dark:text-violet-300 border border-violet-300 dark:border-violet-700 rounded-xl hover:bg-violet-100 dark:hover:bg-violet-800/40 transition-colors"
+                >
+                  <Link2 size={14} /> Copy Join Link
+                </button>
+                <button
+                  onClick={() => router.push(`/events/${eventId}/room`)}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 rounded-xl transition-colors"
+                >
+                  <ExternalLink size={14} /> Join Room
+                </button>
+              </div>
+            </div>
+          )}
+
           <EventForm
             initialData={eventData}
             onSubmit={handleUpdate}

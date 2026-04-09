@@ -15,7 +15,11 @@ import {
   ListChecks,
   HelpCircle,
   ArrowRight,
+  Video,
+  Lock,
+  Zap,
 } from 'lucide-react';
+import { usePlan } from '@/hooks/usePlan';
 import { useRouter } from 'next/navigation';
 
 export type QuestionType = 'text' | 'textarea' | 'checkbox' | 'checkbox_group';
@@ -60,6 +64,7 @@ interface EventPayload {
   reminderSchedule: ReminderType[];
   meetingLink?: string;
   formSchema: ApiFormField[];
+  enableDailyRoom?: boolean;
 }
 
 interface InitialEventData {
@@ -74,6 +79,7 @@ interface InitialEventData {
   location?: string;
   meetingLink?: string;
   meeting_link?: string;
+  daily_room_url?: string | null;
   reminders?: Array<{ type?: string | null }>;
   questions?: CustomQuestion[];
   formSchema?: ApiFormField[] | string | null;
@@ -89,6 +95,7 @@ interface EventFormState {
   meetingLink: string;
   reminderSchedule: ReminderType[];
   questions: CustomQuestion[];
+  enableDailyRoom: boolean;
 }
 
 interface EventFormProps {
@@ -206,6 +213,7 @@ function buildInitialState(initialData?: InitialEventData | null): EventFormStat
     meetingLink: initialData?.meetingLink ?? initialData?.meeting_link ?? initialData?.location ?? '',
     reminderSchedule: parseReminderSchedule(initialData),
     questions:   schema.length > 0 ? mapSchemaToQuestions(schema) : legacyQuestions,
+    enableDailyRoom: !!initialData?.daily_room_url,
   };
 }
 
@@ -213,6 +221,7 @@ const inputCls = "w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/30 border borde
 
 export function EventForm({ initialData, onSubmit, isLoading = false, submitLabel }: EventFormProps) {
   const router = useRouter();
+  const { isPro } = usePlan();
   const [formData, setFormData] = useState<EventFormState>({
     title: '',
     description: '',
@@ -221,6 +230,7 @@ export function EventForm({ initialData, onSubmit, isLoading = false, submitLabe
     meetingLink: '',
     reminderSchedule: DEFAULT_REMINDER_SCHEDULE,
     questions: [],
+    enableDailyRoom: false,
   });
 
   useEffect(() => {
@@ -321,9 +331,13 @@ export function EventForm({ initialData, onSubmit, isLoading = false, submitLabe
       timezone:    formData.timezone,
       reminderSchedule: formData.reminderSchedule,
       formSchema,
+      enableDailyRoom: isPro && formData.enableDailyRoom,
     };
-    const meetingLink = formData.meetingLink.trim();
-    if (meetingLink) payload.meetingLink = meetingLink;
+    // Only send manual meeting link if Daily room is NOT enabled
+    if (!formData.enableDailyRoom) {
+      const meetingLink = formData.meetingLink.trim();
+      if (meetingLink) payload.meetingLink = meetingLink;
+    }
     await onSubmit(payload);
   };
 
@@ -372,6 +386,65 @@ export function EventForm({ initialData, onSubmit, isLoading = false, submitLabe
             </div>
           </div>
 
+          {/* Daily Video Room toggle */}
+          <div className="relative">
+            <div className={`rounded-[20px] border p-5 transition-all ${
+              formData.enableDailyRoom && isPro
+                ? 'border-violet-400/60 bg-violet-50/50 dark:bg-violet-900/10'
+                : 'border-slate-200/80 dark:border-slate-700/50'
+            }`}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-xl ${
+                    formData.enableDailyRoom && isPro
+                      ? 'bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                  }`}>
+                    <Video size={18} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-white">Daily Video Room</p>
+                      {!isPro && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full">
+                          <Zap size={9} /> Pro
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {formData.enableDailyRoom && isPro
+                        ? 'A video room will be auto-created for this event.'
+                        : 'Auto-generate an in-app video room via Daily.co'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={!isPro}
+                  onClick={() => setFormData((prev) => ({ ...prev, enableDailyRoom: !prev.enableDailyRoom }))}
+                  className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors ${
+                    formData.enableDailyRoom && isPro
+                      ? 'bg-violet-600'
+                      : 'bg-slate-200 dark:bg-slate-700'
+                  } disabled:cursor-not-allowed`}
+                  aria-label="Toggle Daily video room"
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                    formData.enableDailyRoom && isPro ? 'translate-x-5' : ''
+                  }`} />
+                </button>
+              </div>
+              {!isPro && (
+                <div className="mt-4 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-xl px-4 py-2.5">
+                  <Lock size={12} />
+                  <span>Upgrade to <strong>Pro</strong> to unlock Daily.co video rooms in your events.</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Manual meeting link — hidden when Daily room is enabled */}
+          {!formData.enableDailyRoom && (
           <div>
             <label className="block text-xs font-medium text-slate-500 uppercase tracking-widest mb-2 ml-1">Meeting Link</label>
             <div className="relative group">
@@ -382,6 +455,7 @@ export function EventForm({ initialData, onSubmit, isLoading = false, submitLabe
             </div>
             <p className="mt-2 text-[11px] text-slate-400 font-medium ml-1">Leave blank if you do not have a meeting URL yet.</p>
           </div>
+          )}
 
           <div>
             <label className="block text-xs font-medium text-slate-500 uppercase tracking-widest mb-2 ml-1">Description</label>

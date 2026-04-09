@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { getClient, query } from '../database/db';
 import { requireManagerOrAdmin } from '../middleware/rbac';
+import { deleteDailyRoom } from './video';
 import {
   buildReminderRowsFromSchedule,
   DEFAULT_EVENT_REMINDER_SCHEDULE,
@@ -511,7 +512,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }
 
     const checkResult = await query(
-      `SELECT organization_id
+      `SELECT organization_id, daily_room_name
        FROM events
        WHERE id = $1
          AND organization_id = $2
@@ -519,6 +520,12 @@ router.delete('/:id', async (req: Request, res: Response) => {
       [id, req.user.organizationId, getOwnerScope(req)]
     );
     if (checkResult.rows.length === 0) return res.status(404).json({ error: 'Event not found' });
+
+    // Clean up Daily room if one exists (non-blocking — log but don't fail)
+    const { daily_room_name } = checkResult.rows[0];
+    if (daily_room_name) {
+      await deleteDailyRoom(daily_room_name);
+    }
 
     await query('DELETE FROM events WHERE id = $1', [id]);
     return res.json({ message: 'Event deleted successfully' });

@@ -2,25 +2,37 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Layout } from '@/components/Layout';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { useAuthUser } from '@/hooks/useAuthUser';
+import { usePlan } from '@/hooks/usePlan';
 import { 
   CalendarDays, Users, Mail, Plus, AlertCircle, 
   Activity, ArrowRight, Link as LinkIcon, Upload, 
-  CheckCircle2, Zap, Loader2
+  CheckCircle2, Zap, Loader2, X
 } from 'lucide-react';
 
 export default function DashboardPage() {
   const router = useRouter();
   const { user } = useAuthUser();
+  const { isPro, isTrialing, trialDaysLeft, isLoading: planLoading } = usePlan();
+  const [showUpgradeBanner, setShowUpgradeBanner] = useState(false);
   
   const [events, setEvents] = useState<any[]>([]);
   const [metrics, setMetrics] = useState<any>(null);
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
   const [globalAttendees, setGlobalAttendees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Show upgrade banner for Free users (once per session)
+  useEffect(() => {
+    if (!planLoading && !isPro) {
+      const dismissed = sessionStorage.getItem('upgrade_banner_dismissed');
+      if (!dismissed) setShowUpgradeBanner(true);
+    }
+  }, [isPro, planLoading]);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -188,6 +200,34 @@ export default function DashboardPage() {
             </button>
           </div>
         </div>
+
+        {/* --- UPGRADE BANNER (Free users only) --- */}
+        {showUpgradeBanner && !isPro && (
+          <div className="flex items-center justify-between gap-4 px-4 sm:px-6 py-3.5 bg-indigo-600 rounded-[16px] text-white mb-2">
+            <div className="flex items-center gap-3">
+              <Zap size={16} className="text-indigo-200 shrink-0" />
+              <p className="text-sm font-medium">
+                {isTrialing
+                  ? `Your Pro trial ends in ${trialDaysLeft} days. Add a payment method to keep Pro features.`
+                  : 'You\'re on the Free plan. Upgrade to Pro for WhatsApp reminders, custom templates, and more.'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Link
+                href="/subscription"
+                className="text-xs font-semibold bg-white text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition-all whitespace-nowrap"
+              >
+                {isTrialing ? 'Add payment method' : 'Upgrade →'}
+              </Link>
+              <button
+                onClick={() => { setShowUpgradeBanner(false); sessionStorage.setItem('upgrade_banner_dismissed', '1'); }}
+                className="p-1 rounded-lg hover:bg-white/20 transition-all"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* --- METRICS --- */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">

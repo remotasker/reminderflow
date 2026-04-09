@@ -227,13 +227,18 @@ export default function LandingPage() {
           </div>
 
           <div className="hidden md:flex items-center gap-8">
-            {['Features', 'Pricing', 'Docs', 'About'].map(item => (
+            {([
+              { label: 'Features', href: '#features' },
+              { label: 'Pricing',  href: '/pricing' },
+              { label: 'Docs',     href: '#docs' },
+              { label: 'About',    href: '#about' },
+            ] as const).map(item => (
               <Link
-                key={item}
-                href={`#${item.toLowerCase()}`}
+                key={item.label}
+                href={item.href}
                 className="text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
               >
-                {item}
+                {item.label}
               </Link>
             ))}
           </div>
@@ -467,6 +472,209 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ── About ──────────────────────────────────────────────────────── */}
+      <section id="about" className="py-32 px-6 bg-slate-50 dark:bg-slate-950 border-t border-slate-200/80 dark:border-slate-800">
+        <div className="max-w-6xl mx-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-widest text-slate-500 mb-4">Who we are</p>
+              <h2 className="text-3xl md:text-4xl font-semibold text-slate-900 dark:text-white tracking-tight mb-6">
+                Built for organizers,<br />by people who hate missed events.
+              </h2>
+              <p className="text-slate-500 leading-relaxed mb-6 font-normal">
+                ReminderFlow was born out of frustration — watching organizers lose attendees simply because people forgot. We built a platform that handles every confirmation and reminder automatically, so you can focus on running great events.
+              </p>
+              <p className="text-slate-500 leading-relaxed font-normal">
+                We're a small, focused team based in Nairobi, Kenya. We dogfood our own product for every event we run and hold ourselves to the same reliability standards we expect from any tool we pay for.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              {[
+                { value: '200+', label: 'Active organizations' },
+                { value: '50K+', label: 'Emails delivered' },
+                { value: '98%',  label: 'Delivery success rate' },
+                { value: '< 4h', label: 'Avg support response' },
+              ].map(s => (
+                <div key={s.label} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-6 text-center shadow-sm">
+                  <p className="text-3xl font-semibold text-slate-900 dark:text-white tracking-tight mb-1">{s.value}</p>
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">{s.label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Docs ───────────────────────────────────────────────────────── */}
+      <section id="docs" className="py-24 px-6 border-t border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-14">
+            <p className="text-xs font-medium uppercase tracking-widest text-slate-500 mb-4">Documentation</p>
+            <h2 className="text-3xl font-semibold text-slate-900 dark:text-white tracking-tight mb-4">
+              Everything you need to get moving
+            </h2>
+            <p className="text-slate-500 max-w-xl mx-auto font-normal">
+              From initial setup to advanced integrations — our docs cover the full platform.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {[
+              {
+                icon: <Zap size={18} />,
+                title: 'Quick Start',
+                desc: 'Create your first event, add attendees, and send your first reminder in under 10 minutes.',
+                links: ['Initial Setup Guide', 'Creating your first event', 'Adding attendees via CSV'],
+                color: 'text-amber-600 bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/50',
+              },
+              {
+                icon: <Mail size={18} />,
+                title: 'Email Templates',
+                desc: 'Customize your brand colors, themes, and per-email messaging to match your events.',
+                links: ['Template themes overview', 'Brand color configuration', 'Subject line variables'],
+                color: 'text-blue-600 bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800/50',
+              },
+              {
+                icon: <Shield size={18} />,
+                title: 'Security & APIs',
+                desc: 'JWT authentication, role-based access, webhook integrations, and multi-org isolation.',
+                links: ['Authentication & sessions', 'Role-based access control', 'Webhooks & integrations'],
+                color: 'text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/50',
+              },
+            ].map(card => (
+              <div key={card.title} className="bg-slate-50 dark:bg-slate-800/30 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 p-6 hover:shadow-md transition-all">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center border mb-5 ${card.color}`}>
+                  {card.icon}
+                </div>
+                <h3 className="text-base font-semibold text-slate-900 dark:text-white mb-2">{card.title}</h3>
+                <p className="text-sm text-slate-500 mb-5 leading-relaxed">{card.desc}</p>
+                <ul className="space-y-2">
+                  {card.links.map(l => (
+                    <li key={l}>
+                      <Link href="/help" className="text-sm text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1.5 transition-colors">
+                        <ArrowRight size={12} className="flex-shrink-0" />{l}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <div className="mt-10 text-center">
+            <Link href="/help" className="inline-flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-400 font-medium hover:underline">
+              Browse the full Help Center <ArrowRight size={14} />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Pricing ─────────────────────────────────────────────────────── */}
+      <section id="pricing" className="py-32 px-6 border-t border-slate-200/80 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-16">
+            <p className="text-xs font-medium uppercase tracking-widest text-slate-500 mb-4">Pricing</p>
+            <h2 className="text-3xl md:text-4xl font-semibold text-slate-900 dark:text-white tracking-tight mb-4">
+              Start free. Upgrade when ready.
+            </h2>
+            <p className="text-slate-500 max-w-lg mx-auto font-normal">
+              Email reminders are free forever. Upgrade to Pro for WhatsApp, custom branding, and more.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+            {/* Free */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 flex flex-col shadow-sm">
+              <div className="mb-6">
+                <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
+                  <Sparkles size={18} className="text-slate-500" />
+                </div>
+                <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-1">Free</h3>
+                <p className="text-sm text-slate-500">Perfect for getting started</p>
+              </div>
+              <div className="mb-6">
+                <span className="text-4xl font-bold text-slate-900 dark:text-white">KSh 0</span>
+                <span className="text-slate-400 text-sm ml-1">/ month</span>
+              </div>
+              <ul className="space-y-3 flex-1 mb-8">
+                {[
+                  { text: 'Unlimited email reminders', ok: true },
+                  { text: 'Built-in email templates', ok: true },
+                  { text: 'Event registration forms', ok: true },
+                  { text: 'Basic analytics', ok: true },
+                  { text: 'WhatsApp reminders', ok: false },
+                  { text: 'Custom email sender', ok: false },
+                  { text: 'Custom templates', ok: false },
+                ].map(f => (
+                  <li key={f.text} className="flex items-center gap-2.5">
+                    <div className={`flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center ${
+                      f.ok ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-slate-100 dark:bg-slate-800'
+                    }`}>
+                      {f.ok
+                        ? <CheckCircle2 size={10} className="text-emerald-600 dark:text-emerald-400" />
+                        : <span className="text-[10px] text-slate-400 font-bold">✕</span>
+                      }
+                    </div>
+                    <span className={`text-sm ${ f.ok ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 dark:text-slate-600'}`}>{f.text}</span>
+                  </li>
+                ))}
+              </ul>
+              <Link href="/signup" className="w-full flex items-center justify-center py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition-all">
+                Get started free
+              </Link>
+            </div>
+
+            {/* Pro */}
+            <div className="bg-slate-900 dark:bg-slate-800 rounded-2xl border border-slate-700 p-8 flex flex-col relative overflow-hidden shadow-xl">
+              <div className="absolute -top-10 -right-10 w-32 h-32 bg-indigo-500/15 rounded-full blur-2xl pointer-events-none" />
+              <div className="relative mb-6">
+                <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-500/20 flex items-center justify-center mb-4">
+                  <Zap size={18} className="text-indigo-400" />
+                </div>
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="text-xl font-semibold text-white">Pro</h3>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/30 text-indigo-400 font-medium uppercase tracking-widest">Popular</span>
+                </div>
+                <p className="text-sm text-slate-400">For teams that need more</p>
+              </div>
+              <div className="relative mb-2">
+                <span className="text-4xl font-bold text-white">KSh 1,500</span>
+                <span className="text-slate-400 text-sm ml-1">/ month</span>
+              </div>
+              <div className="flex items-center gap-1.5 mb-6">
+                <Clock size={12} className="text-indigo-400" />
+                <span className="text-xs text-indigo-400 font-medium">14-day free trial included</span>
+              </div>
+              <ul className="space-y-3 flex-1 mb-8">
+                {[
+                  'Everything in Free',
+                  'WhatsApp reminders (Twilio)',
+                  'Custom email sender (coming soon)',
+                  'Custom email templates',
+                  'Unlimited events',
+                  'Advanced analytics',
+                  'Priority support',
+                ].map(f => (
+                  <li key={f} className="flex items-center gap-2.5">
+                    <div className="flex-shrink-0 w-4 h-4 rounded-full bg-indigo-500/20 border border-indigo-500/20 flex items-center justify-center">
+                      <CheckCircle2 size={10} className="text-indigo-400" />
+                    </div>
+                    <span className="text-sm text-slate-300">{f}</span>
+                  </li>
+                ))}
+              </ul>
+              <Link href="/signup" className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-all active:scale-[0.98] shadow-lg shadow-indigo-500/20">
+                Start 14-Day Free Trial <ArrowRight size={14} />
+              </Link>
+              <p className="mt-2.5 text-center text-xs text-slate-500">Cancel anytime. No hidden fees.</p>
+            </div>
+          </div>
+
+          <p className="text-center text-sm text-slate-500 mt-8">
+            Want to compare in detail?{' '}
+            <Link href="/pricing" className="text-indigo-600 dark:text-indigo-400 font-medium hover:underline">View full pricing page →</Link>
+          </p>
+        </div>
+      </section>
+
       {/* ── CTA banner ──────────────────────────────────────────────────── */}
       <section className="py-32 px-6">
         <div className="max-w-5xl mx-auto text-center">
@@ -526,10 +734,11 @@ export default function LandingPage() {
           <div className="flex flex-wrap justify-center gap-8 text-sm font-medium text-slate-500">
             {[
               { label: 'Features', href: '#features' },
-              { label: 'Pricing', href: '/signup' },
-              { label: 'Privacy', href: '/privacy' },
-              { label: 'Terms', href: '/terms' },
-              { label: 'Contact', href: 'mailto:support@reminderflow.app' },
+              { label: 'Pricing',  href: '/pricing' },
+              { label: 'About',    href: '#about' },
+              { label: 'Privacy',  href: '/privacy' },
+              { label: 'Terms',    href: '/terms' },
+              { label: 'Contact',  href: 'mailto:support@reminderflow.app' },
             ].map((item) => (
               <a
                 key={item.label}

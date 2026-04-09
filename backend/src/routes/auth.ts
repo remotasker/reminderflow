@@ -126,10 +126,15 @@ async function issueTokenPair(
 router.post('/register', registerRateLimit, async (req: Request, res: Response) => {
   const client = await getClient();
   try {
-    const { email, password, name } = req.body;
-    const normalizedEmail = normalizeEmail(email);
-    const normalizedName  = normalizeName(name);
-    const passwordError   = validatePasswordStrength(password);
+    const { email, password, name, organizationName, country } = req.body;
+    const normalizedEmail   = normalizeEmail(email);
+    const normalizedName    = normalizeName(name);
+    const passwordError     = validatePasswordStrength(password);
+
+    // Org name: use provided organizationName if given, else fall back to user name
+    const rawOrgName      = organizationName ? String(organizationName).trim() : '';
+    const normalizedOrgName = rawOrgName.length > 0 ? normalizeName(rawOrgName) : normalizedName;
+    const normalizedCountry = country ? String(country).trim().slice(0, 100) : null;
 
     if (!normalizedEmail || !normalizedName || passwordError) {
       return res.status(400).json({ error: passwordError || 'Valid name and email are required' });
@@ -146,19 +151,27 @@ router.post('/register', registerRateLimit, async (req: Request, res: Response) 
     const organizationId = uuidv4();
     const userId         = uuidv4();
     const passwordHash   = await hashPassword(password);
-    const slug           = normalizedName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const slug           = (normalizedOrgName ?? normalizedName).toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
     await client.query('BEGIN');
 
     await client.query(
-      'INSERT INTO organizations (id, name, slug) VALUES ($1, $2, $3)',
-      [organizationId, normalizedName, `${slug}-${organizationId.substring(0, 8)}`]
+      'INSERT INTO organizations (id, name, slug, country) VALUES ($1, $2, $3, $4)',
+      [organizationId, normalizedOrgName, `${slug}-${organizationId.substring(0, 8)}`, normalizedCountry]
     );
 
     await client.query(
       `INSERT INTO users (id, organization_id, email, password_hash, full_name, role)
        VALUES ($1, $2, $3, $4, $5, 'admin')`,
       [userId, organizationId, normalizedEmail, passwordHash, normalizedName]
+    );
+
+    // Create a free subscription row for the new organization
+    await client.query(
+      `INSERT INTO subscriptions (organization_id, plan, status)
+       VALUES ($1, 'free', 'active')
+       ON CONFLICT (organization_id) DO NOTHING`,
+      [organizationId]
     );
 
     await client.query('COMMIT');

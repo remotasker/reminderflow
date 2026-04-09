@@ -40,9 +40,12 @@ router.get('/events/:id', async (req: Request, res: Response) => {
     }
 
     const result = await query(
-      `SELECT id, title, description, event_date, event_time, timezone, form_schema
-       FROM events
-       WHERE id = $1`,
+      `SELECT e.id, e.title, e.description, e.event_date, e.event_time, e.timezone, e.form_schema,
+              CASE WHEN s.plan = 'pro' AND s.status IN ('active', 'trialing') THEN true ELSE false END AS whatsapp_enabled
+       FROM events e
+       JOIN organizations o ON o.id = e.organization_id
+       LEFT JOIN subscriptions s ON s.organization_id = o.id
+       WHERE e.id = $1`,
       [id]
     );
 
